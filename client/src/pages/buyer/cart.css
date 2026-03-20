@@ -1,0 +1,155 @@
+.cart-page {
+  min-height: 100vh;
+  background: #f5f7f5;
+  font-family: "Inter", sans-serif;
+}
+
+/* Topbar */
+.cart-topbar {
+  height: 56px;
+  background: #0ea332;
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  color: white;
+}
+
+.cart-brand {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Layout */
+.cart-container {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  padding: 24px;
+}
+
+/* Items Section */
+.cart-items-section {
+  background: white;
+  padding: 22px;
+  border-radius: 14px;
+}
+
+.cart-items-section h2 {
+  margin-bottom: 16px;
+}
+
+/* Item */
+.cart-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f9fafb;
+  margin-bottom: 14px;
+}
+
+.cart-item-left {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.item-image {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  background: #eef8ef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.cart-item-left h4 {
+  margin: 0;
+}
+
+.farmer {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.price {
+  font-size: 13px;
+  color: #0ea332;
+  font-weight: 600;
+}
+
+/* Right */
+.cart-item-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.quantity-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quantity-box button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.item-total {
+  font-weight: 700;
+}
+
+/* Summary */
+.cart-summary {
+  background: white;
+  padding: 22px;
+  border-radius: 14px;
+  height: fit-content;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.checkout-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px;
+  background: #0ea332;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.checkout-btn:hover {
+  background: #0b8e2b;
+}
+
+.back-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border: none;
+  background: #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .cart-container {
+    grid-template-columns: 1fr;
+  }
+}

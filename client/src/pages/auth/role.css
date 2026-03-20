@@ -1,0 +1,232 @@
+/* Page Background */
+.ag-role-page {
+  min-height: 100vh;
+  background: linear-gradient(
+      rgba(245, 248, 244, 0.94),
+      rgba(245, 248, 244, 0.94)
+    ),
+    url("https://images.unsplash.com/photo-1500382017468-9049fed747ef")
+      center/cover no-repeat;
+  font-family: "Inter", sans-serif;
+}
+
+/* Top Bar */
+.ag-role-topbar {
+  height: 34px;
+  background: #09a52c;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.ag-role-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Content */
+.ag-role-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 22px;
+  padding-bottom: 40px;
+}
+
+.ag-role-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #5d6670;
+}
+
+.ag-role-subtitle {
+  margin-top: 6px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #68727c;
+}
+
+/* Grid Layout */
+.ag-role-grid {
+  width: 470px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+/* Card */
+.ag-role-card {
+  height: 170px;
+  border-radius: 10px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+
+  cursor: pointer;
+  position: relative;
+  transition: all 0.25s ease;
+}
+
+/* 🔥 HOVER EFFECT (MAIN FEATURE) */
+.ag-role-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
+}
+
+/* Optional glow border */
+.ag-role-card:hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgba(9, 165, 44, 0.15);
+  pointer-events: none;
+}
+
+/* Click effect */
+.ag-role-card:active {
+  transform: translateY(-2px) scale(0.98);
+}
+
+/* Card Text */
+.ag-role-card h3 {
+  margin: 12px 0 10px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #4f5963;
+}
+
+.ag-role-card p {
+  margin: 0 0 16px;
+  max-width: 180px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #64707b;
+}
+
+/* Icon */
+.ag-role-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+/* Card Colors */
+.farmer-card {
+  background: #eef8ef;
+}
+
+.customer-card {
+  background: #fcf3ea;
+}
+
+.seller-card {
+  background: #eef8ef;
+}
+
+.delivery-card {
+  background: #eef3ff;
+}
+
+.admin-card {
+  background: #f6effc;
+  grid-column: 1 / 2;
+}
+
+/* Icon Colors */
+.farmer-icon {
+  background: #d7f2de;
+  color: #0ea332;
+}
+
+.customer-icon {
+  background: #ffe6cf;
+  color: #f97316;
+}
+
+.seller-icon {
+  background: #d7f2de;
+  color: #16a34a;
+}
+
+.delivery-icon {
+  background: #dbe8ff;
+  color: #2563eb;
+}
+
+.admin-icon {
+  background: #eadcff;
+  color: #9333ea;
+}
+
+/* Buttons (text style only) */
+.ag-role-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Link Colors */
+.farmer-link {
+  color: #0ea332;
+}
+
+.customer-link {
+  color: #f97316;
+}
+
+.seller-link {
+  color: #16a34a;
+}
+
+.delivery-link {
+  color: #2563eb;
+}
+
+.admin-link {
+  color: #9333ea;
+}
+
+/* Login Text */
+.ag-role-login-text {
+  margin-top: 14px;
+  font-size: 11px;
+  color: #6d7680;
+}
+
+.ag-role-login-text span {
+  color: #0ea332;
+  cursor: pointer;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .ag-role-grid {
+    width: 92%;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-card {
+    grid-column: auto;
+  }
+
+  .ag-role-card {
+    height: auto;
+    min-height: 165px;
+  }
+}

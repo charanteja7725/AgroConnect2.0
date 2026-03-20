@@ -1,0 +1,249 @@
+/* RESET */
+body {
+  margin: 0;
+  font-family: "Inter", sans-serif;
+  background: #f5f5f5;
+}
+
+/* NAVBAR */
+.navbar {
+  position: fixed;
+  top: 0;
+  width: 100%;
+  height: 50px;
+  background: #16a34a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 40px;
+  color: white;
+  z-index: 1000;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.nav-buttons button {
+  margin-left: 10px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.register {
+  background: #f97316;
+  color: white;
+}
+
+/* HERO */
+.hero {
+  margin-top: 50px;
+  height: 70vh;
+  background: url("https://images.unsplash.com/photo-1500382017468-9049fed747ef") center/cover no-repeat;
+}
+
+.overlay {
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-content {
+  text-align: center;
+  width: 650px;
+}
+
+.hero h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #222;
+}
+
+.hero p {
+  font-size: 13px;
+  color: #666;
+  margin-top: 10px;
+}
+
+/* MIC ICON */
+.mic {
+  font-size: 22px;
+  color: #16a34a;
+  margin-bottom: 10px;
+}
+
+/* SEARCH BAR */
+.search-box {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.search-box select {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px 0 0 8px;
+  background: #f9f9f9;
+}
+
+.search-box input {
+  width: 320px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-left: none;
+  border-right: none;
+}
+
+.mic-icon {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-left: none;
+  background: white;
+}
+
+.search-btn {
+  background: #16a34a;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 0 8px 8px 0;
+  cursor: pointer;
+}
+
+/* BUTTON */
+.start-btn {
+  margin-top: 15px;
+  padding: 8px 22px;
+  background: #16a34a;
+  color: white;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+
+/* WHO WE SERVE */
+.serve {
+  text-align: center;
+  margin-top: 40px;
+}
+
+.serve h2 {
+  font-size: 18px;
+  color: #333;
+}
+
+/* CARDS */
+.cards {
+  display: flex;
+  justify-content: center;
+  gap: 25px;
+  margin-top: 20px;
+}
+
+.card {
+  width: 230px;
+  padding: 18px;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  text-align: left;
+}
+
+.card-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.card h3 {
+  font-size: 14px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.card ul {
+  font-size: 12px;
+  color: #555;
+  padding-left: 15px;
+}
+
+/* CARD COLORS */
+.green {
+  background: #e8f5e9;
+}
+
+.orange {
+  background: #fff3e0;
+}
+
+.blue {
+  background: #e3f2fd;
+}
+
+/* STEPS SECTION */
+.steps {
+  text-align: center;
+  margin-top: 40px;
+}
+
+.steps h2 {
+  font-size: 18px;
+  color: #333;
+}
+
+.step-container {
+  display: flex;
+  justify-content: center;
+  gap: 50px;
+  margin-top: 20px;
+}
+
+.step {
+  width: 200px;
+}
+
+.circle {
+  width: 30px;
+  height: 30px;
+  background: #16a34a;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  margin-bottom: 10px;
+}
+
+.step h4 {
+  font-size: 14px;
+  margin: 5px 0;
+}
+
+.step p {
+  font-size: 12px;
+  color: #666;
+}
+
+/* FOOTER */
+.footer {
+  margin-top: 40px;
+  background: #4b5563;
+  color: white;
+  text-align: center;
+  padding: 15px;
+  font-size: 12px;
+}

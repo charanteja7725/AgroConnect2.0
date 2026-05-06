@@ -1,16 +1,40 @@
-# React + Vite
+# AgroConnect Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the React + Vite frontend for AgroConnect, the agricultural marketplace connecting farmers, buyers, fertilizer sellers, and delivery partners.
 
-Currently, two official plugins are available:
+## Getting Started
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Use the following commands in the `client/` directory:
 
-## React Compiler
+### `npm install`
+Installs frontend dependencies.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### `npm run dev`
+Runs the frontend in development mode at `http://localhost:5173`.
 
-## Expanding the ESLint configuration
+### `npm run build`
+Bundles the app for production.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Environment Variables
+
+Create a `.env` file in `client/` with:
+
+```env
+VITE_API_URL=http://localhost:5000/api
+```
+
+## Frontend Features
+
+- Role-based registration and login
+- Buyer dashboard with voice search and geolocation
+- Cart checkout flow
+- Farmer product management and product listing
+- Delivery partner and fertilizer seller dashboard layouts
+- Admin overview dashboard
+- Auth, cart, location, and notification context support
+
+## Notes
+
+- The frontend communicates with the backend using `VITE_API_URL`.
+- Build output is generated in `client/dist`.
+- For project-level setup and deployment, see the root `README.md`.

@@ -1,82 +1,82 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { productAPI, cartAPI } from "../../services/api.js";
+import { useAuth, useNotification } from "../../context/AppContext.jsx";
+import VoiceSearch from "../../components/VoiceSearch.jsx";
+import { LocationService } from "../../services/LocationService.js";
 import "./buyerdashboard.css";
 
 const BuyerDashboard = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const { addNotification } = useNotification();
+  const [searchText, setSearchText] = useState("");
+  const [locationInfo, setLocationInfo] = useState(null);
+  const [locationAddress, setLocationAddress] = useState("");
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadProducts = async (location = null, search = "") => {
+    setLoading(true);
+    setError("");
+    try {
+      const query = {};
+      if (search) {
+        query.search = search;
+      }
+      if (location?.latitude && location?.longitude) {
+        query.latitude = location.latitude;
+        query.longitude = location.longitude;
+        query.maxDistance = 20000;
+      }
+      const data = await productAPI.getAllProducts(query);
+      setProducts(data.products || []);
+    } catch (err) {
+      setError(err.message || "Unable to fetch products");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProducts(null, searchText);
+  }, []);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (searchText.trim() || locationInfo) {
+        loadProducts(locationInfo, searchText);
+      }
+    }, 500);
+
+    return () => clearTimeout(handler);
+  }, [searchText, locationInfo]);
+
+  const filteredProducts = useMemo(() => {
+    if (!searchText) return products;
+    const lowerSearch = searchText.toLowerCase();
+    return products.filter(
+      (product) =>
+        product.name?.toLowerCase().includes(lowerSearch) ||
+        product.category?.toLowerCase().includes(lowerSearch) ||
+        product.sellerName?.toLowerCase().includes(lowerSearch)
+    );
+  }, [products, searchText]);
+
+  const handleAddToCart = async (productId) => {
+    try {
+      await cartAPI.addToCart(productId, 1);
+      addNotification("Product added to cart", "success");
+    } catch (err) {
+      addNotification(err.message || "Unable to add item to cart", "error");
+    }
+  };
 
   const nearbyFarmers = [
     { id: 1, name: "Ramesh Kumar", distance: "2.5 km away", products: 8 },
     { id: 2, name: "Suresh Patel", distance: "3.2 km away", products: 12 },
     { id: 3, name: "Anil Sharma", distance: "1.8 km away", products: 6 },
-  ];
-
-  const products = [
-    {
-      id: 1,
-      name: "Fresh Tomatoes",
-      farmer: "Ramesh Kumar",
-      distance: "2.5 km",
-      price: 40,
-      stock: "50 kg available",
-      rating: 4.5,
-      image:
-        "https://images.unsplash.com/photo-1546094096-0df4bcaaa337?auto=format&fit=crop&w=800&q=80",
-    },
-    {
-      id: 2,
-      name: "Organic Potatoes",
-      farmer: "Suresh Patel",
-      distance: "3.2 km",
-      price: 30,
-      stock: "100 kg available",
-      rating: 4.8,
-      image:
-        "https://images.unsplash.com/photo-1518977676601-b53f82aba655?auto=format&fit=crop&w=800&q=80",
-    },
-    {
-      id: 3,
-      name: "Red Onions",
-      farmer: "Anil Sharma",
-      distance: "1.8 km",
-      price: 35,
-      stock: "80 kg available",
-      rating: 4.3,
-      image:
-        "https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?auto=format&fit=crop&w=800&q=80",
-    },
-    {
-      id: 4,
-      name: "Fresh Carrots",
-      farmer: "Vijay Kumar",
-      distance: "4.1 km",
-      price: 45,
-      stock: "60 kg available",
-      rating: 4.6,
-      image:
-        "https://images.unsplash.com/photo-1447175008436-054170c2e979?auto=format&fit=crop&w=800&q=80",
-    },
-    {
-      id: 5,
-      name: "Green Cabbage",
-      farmer: "Prakash Reddy",
-      distance: "2.9 km",
-      price: 25,
-      stock: "70 kg available",
-      rating: 4.4,
-      image:
-        "https://images.unsplash.com/photo-1611105637889-3afd7295bdbf?auto=format&fit=crop&w=800&q=80",
-    },
-    {
-      id: 6,
-      name: "Cauliflower",
-      farmer: "Mohan Singh",
-      distance: "3.5 km",
-      price: 50,
-      stock: "40 kg available",
-      rating: 4.7,
-      image:
-        "https://images.unsplash.com/photo-1510627498534-cf7e9002facc?auto=format&fit=crop&w=800&q=80",
-    },
   ];
 
   return (
@@ -87,7 +87,7 @@ const BuyerDashboard = () => {
           <div className="customer-brand">🌱 AgroConnect</div>
 
           <div className="customer-user-info">
-            <span className="customer-greeting">Hi, Priya! 👋</span>
+            <span className="customer-greeting">Hi, {user?.firstName || "there"}! 👋</span>
           </div>
 
           <div className="customer-top-actions">
@@ -97,7 +97,15 @@ const BuyerDashboard = () => {
             >
               🛒
             </button>
-            <button className="logout-btn">Logout</button>
+            <button
+              className="logout-btn"
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>
@@ -112,13 +120,51 @@ const BuyerDashboard = () => {
               <option>Within 5 km</option>
             </select>
 
-            <input
-              type="text"
+            <VoiceSearch
+              onSearch={(value) => setSearchText(value)}
               placeholder="Search for fresh vegetables, fruits, grains..."
             />
 
-            <button className="voice-btn">🎤</button>
-            <button className="search-btn">🔍</button>
+            <button
+              className="search-btn"
+              onClick={() => loadProducts(locationInfo, searchText)}
+            >
+              🔍
+            </button>
+          </div>
+          <div className="location-actions">
+            <button
+              className="location-btn"
+              onClick={async () => {
+                try {
+                  const location = await LocationService.getCurrentLocation();
+                  setLocationInfo(location);
+                  const address = await LocationService.reverseGeocode(location.latitude, location.longitude);
+                  setLocationAddress(
+                    address
+                      ? `${address.city || address.town || address.village || ""}, ${address.state || ""}`.trim()
+                      : "Current location"
+                  );
+                  loadProducts(location, searchText);
+                } catch (error) {
+                  setLocationInfo({ error: error.message });
+                }
+              }}
+            >
+              Use My Location
+            </button>
+            {locationInfo && (
+              <div className="location-status">
+                {locationInfo.error ? (
+                  `Location error: ${locationInfo.error}`
+                ) : (
+                  <>
+                    <span>{`Current location: ${locationInfo.latitude.toFixed(3)}, ${locationInfo.longitude.toFixed(3)}`}</span>
+                    {locationAddress && <span> · {locationAddress}</span>}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -145,34 +191,40 @@ const BuyerDashboard = () => {
           <button className="filter-btn">Filter</button>
         </div>
 
-        <div className="product-grid">
-          {products.map((product) => (
-            <div className="product-card" key={product.id}>
-              <div className="product-image-wrapper">
-                <img src={product.image} alt={product.name} />
-                <div className="rating-badge">⭐ {product.rating}</div>
-              </div>
-
-              <div className="product-card-body">
-                <h4>{product.name}</h4>
-                <p className="farmer-line">🌱 {product.farmer}</p>
-                <p className="distance-line">📍 {product.distance}</p>
-
-                <div className="product-meta">
-                  <span className="product-price">₹{product.price}/kg</span>
-                  <span className="product-stock">{product.stock}</span>
+        {loading ? (
+          <div className="loading-state">Loading products...</div>
+        ) : error ? (
+          <div className="error-state">{error}</div>
+        ) : (
+          <div className="product-grid">
+            {filteredProducts.map((product) => (
+              <div className="product-card" key={product._id}>
+                <div className="product-image-wrapper">
+                  <img
+                    src={product.mainImage || product.images?.[0]?.url || "https://via.placeholder.com/300"}
+                    alt={product.name}
+                  />
+                  <div className="rating-badge">⭐ {product.rating || "4.5"}</div>
                 </div>
 
-                <button
-                  className="add-cart-btn"
-                  onClick={() => navigate("/buyer/cart")}
-                >
-                  🛒 Add to Cart
-                </button>
+                <div className="product-card-body">
+                  <h4>{product.name}</h4>
+                  <p className="farmer-line">🌱 {product.sellerName || product.seller?.firstName || "Local Farmer"}</p>
+                  <p className="distance-line">📍 {product.address || "Nearby"}</p>
+
+                  <div className="product-meta">
+                    <span className="product-price">₹{product.price}/kg</span>
+                    <span className="product-stock">{product.quantity || "In Stock"} kg</span>
+                  </div>
+
+                  <button className="add-cart-btn" onClick={() => handleAddToCart(product._id)}>
+                    🛒 Add to Cart
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Price comparison */}
         <div className="comparison-box">

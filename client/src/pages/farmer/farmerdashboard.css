@@ -6,7 +6,7 @@
 
 .farmer-topbar {
   height: 56px;
-  background: #0ea332;
+  background: #16a34a;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -27,7 +27,7 @@
 
 .lang-btn {
   background: white;
-  color: #0ea332;
+  color: #16a34a;
   border: none;
   padding: 6px 12px;
   border-radius: 8px;
@@ -76,12 +76,12 @@
 
 .sidebar-item:hover {
   background: #eef8ef;
-  color: #0ea332;
+  color: #16a34a;
 }
 
 .sidebar-item.active {
   background: #dff4e3;
-  color: #0ea332;
+  color: #16a34a;
   font-weight: 600;
 }
 
@@ -175,12 +175,16 @@
 }
 
 .action-card button {
-  background: #0ea332;
+  background: #16a34a;
   color: white;
   border: none;
   padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;
+}
+
+.action-card button:hover {
+  background: #15803d;
 }
 
 .product-table {

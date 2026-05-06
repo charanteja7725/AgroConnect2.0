@@ -71,13 +71,13 @@
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
-  border-color: #0ea332;
+  border-color: #16a34a;
 }
 
 .submit-btn {
   width: 100%;
   padding: 12px;
-  background: #0ea332;
+  background: #16a34a;
   color: white;
   border: none;
   border-radius: 10px;
@@ -87,7 +87,7 @@
 }
 
 .submit-btn:hover {
-  background: #0b8e2b;
+  background: #15803d;
 }
 
 .ai-price-card h3 {
@@ -105,8 +105,8 @@
   margin: 18px 0;
   padding: 18px;
   border-radius: 14px;
-  background: #eef8ef;
-  color: #0ea332;
+  background: #dcfce7;
+  color: #16a34a;
   font-size: 24px;
   font-weight: 700;
   text-align: center;

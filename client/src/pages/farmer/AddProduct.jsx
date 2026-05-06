@@ -1,12 +1,20 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { productAPI } from "../../services/api.js";
+import { useNotification } from "../../context/AppContext.jsx";
 import "./addproduct.css";
 
 const AddProduct = () => {
+  const navigate = useNavigate();
+  const { addNotification } = useNotification();
   const [productName, setProductName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
   const [marketPrice, setMarketPrice] = useState("");
   const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const suggestedPrice =
     marketPrice && quantity ? (Number(marketPrice) * 0.95).toFixed(2) : "";
@@ -78,15 +86,68 @@ const AddProduct = () => {
 
           <div className="form-group">
             <label>Upload Product Image</label>
-            <input type="file" />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+            />
           </div>
 
           <div className="form-group">
             <label>Description</label>
-            <textarea placeholder="Write short product description..." />
+            <textarea
+              placeholder="Write short product description..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </div>
 
-          <button className="submit-btn">Add Product</button>
+          <button
+            className="submit-btn"
+            onClick={async () => {
+              if (!productName || !category || !quantity || !marketPrice || !location) {
+                addNotification("Please fill in all required fields", "error");
+                return;
+              }
+
+              setSubmitting(true);
+              try {
+                const imageUrl = imageFile ? URL.createObjectURL(imageFile) : null;
+                await productAPI.createProduct({
+                  name: productName,
+                  description,
+                  type: "produce",
+                  category,
+                  price: Number(marketPrice),
+                  quantity: Number(quantity),
+                  unit: "kg",
+                  images: imageUrl ? [{ url: imageUrl, alt: productName }] : [],
+                  address: location,
+                  location: {
+                    type: "Point",
+                    coordinates: [0, 0],
+                  },
+                });
+
+                addNotification("Product added successfully", "success");
+                setProductName("");
+                setCategory("");
+                setQuantity("");
+                setMarketPrice("");
+                setLocation("");
+                setDescription("");
+                setImageFile(null);
+                navigate("/farmer");
+              } catch (error) {
+                addNotification(error.message || "Unable to add product", "error");
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            disabled={submitting}
+          >
+            {submitting ? "Adding..." : "Add Product"}
+          </button>
         </div>
 
         <div className="ai-price-card">

@@ -1,11 +1,11 @@
 .customer-dashboard-page {
   min-height: 100vh;
-  background: #f3efe8;
+  background: #f5f7f5;
   font-family: "Inter", sans-serif;
 }
 
 .customer-topbar {
-  background: #ff5a00;
+  background: #16a34a;
   padding: 14px 0;
   color: white;
 }
@@ -95,7 +95,7 @@
 }
 
 .search-btn {
-  background: #19a44a;
+  background: #16a34a;
   color: white;
 }
 
@@ -121,9 +121,9 @@
 
 .filter-btn {
   padding: 6px 12px;
-  border: 1px solid #ff5a00;
+  border: 1px solid #16a34a;
   background: white;
-  color: #ff5a00;
+  color: #16a34a;
   border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
@@ -171,8 +171,8 @@
 
 .mini-badge {
   margin-left: auto;
-  background: #fff0e7;
-  color: #ff5a00;
+  background: #dcfce7;
+  color: #16a34a;
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 999px;

@@ -24,7 +24,7 @@ const RoleSelection = () => {
           {/* Farmer */}
           <div
             className="ag-role-card farmer-card"
-            onClick={() => navigate("/farmer")}
+            onClick={() => navigate("/register?role=farmer")}
           >
             <div className="ag-role-icon farmer-icon">🌱</div>
             <h3>Farmer</h3>
@@ -37,7 +37,7 @@ const RoleSelection = () => {
           {/* Customer */}
           <div
             className="ag-role-card customer-card"
-            onClick={() => navigate("/buyer")}
+            onClick={() => navigate("/register?role=buyer")}
           >
             <div className="ag-role-icon customer-icon">🛒</div>
             <h3>Customer</h3>
@@ -50,7 +50,7 @@ const RoleSelection = () => {
           {/* Fertilizer Seller */}
           <div
             className="ag-role-card seller-card"
-            onClick={() => navigate("/fertilizer")}
+            onClick={() => navigate("/register?role=fertilizer_seller")}
           >
             <div className="ag-role-icon seller-icon">🏪</div>
             <h3>Fertilizer Seller</h3>
@@ -63,7 +63,7 @@ const RoleSelection = () => {
           {/* Delivery Partner */}
           <div
             className="ag-role-card delivery-card"
-            onClick={() => navigate("/delivery")}
+            onClick={() => navigate("/register?role=delivery_partner")}
           >
             <div className="ag-role-icon delivery-icon">🚚</div>
             <h3>Delivery Partner</h3>
@@ -76,7 +76,7 @@ const RoleSelection = () => {
           {/* Admin */}
           <div
             className="ag-role-card admin-card"
-            onClick={() => navigate("/admin")}
+            onClick={() => navigate("/login")}
           >
             <div className="ag-role-icon admin-icon">🛡️</div>
             <h3>Admin</h3>

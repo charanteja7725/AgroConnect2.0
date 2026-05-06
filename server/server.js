@@ -4,6 +4,8 @@ const dotenv = require("dotenv");
 const http = require("http");
 const socketIO = require("socket.io");
 const mongoose = require("mongoose");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 // Load environment variables
 dotenv.config();
@@ -30,7 +32,24 @@ const io = socketIO(server, {
 });
 
 // Middleware
-app.use(cors());
+app.use(helmet());
+
+const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
+app.use(
+  cors({
+    origin: clientOrigin,
+    credentials: true,
+  })
+);
+
+const authLimiter = rateLimit({
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+});
+app.use("/api/auth", authLimiter);
+
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json", limit: "50mb" })
@@ -43,10 +62,7 @@ app.use(express.static("public"));
 
 // MongoDB Connection
 mongoose
-  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect", {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect")
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 

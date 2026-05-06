@@ -64,6 +64,26 @@ router.get("/", async (req, res) => {
   }
 });
 
+// @route   GET /api/products/seller/:sellerId
+// @desc    Get all products of a seller
+// @access  Public
+router.get("/seller/:sellerId", async (req, res) => {
+  try {
+    const products = await Product.find({
+      seller: req.params.sellerId,
+      isActive: true,
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: products.length,
+      products,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error fetching products: " + err.message });
+  }
+});
+
 // @route   GET /api/products/:id
 // @desc    Get single product
 // @access  Public
@@ -207,26 +227,6 @@ router.delete("/:id", protect, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Error deleting product: " + err.message });
-  }
-});
-
-// @route   GET /api/products/seller/:sellerId
-// @desc    Get all products of a seller
-// @access  Public
-router.get("/seller/:sellerId", async (req, res) => {
-  try {
-    const products = await Product.find({
-      seller: req.params.sellerId,
-      isActive: true,
-    }).sort({ createdAt: -1 });
-
-    res.json({
-      success: true,
-      count: products.length,
-      products,
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Error fetching products: " + err.message });
   }
 });
 

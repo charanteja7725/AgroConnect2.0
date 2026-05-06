@@ -32,6 +32,40 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
+// @route   GET /api/delivery/nearby
+// @desc    Get nearby deliveries for a partner
+// @access  Private (Delivery Partner)
+router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) => {
+  try {
+    const { longitude, latitude, maxDistance = 50000 } = req.query;
+
+    if (!longitude || !latitude) {
+      return res.status(400).json({ error: "Location coordinates are required" });
+    }
+
+    const deliveries = await Delivery.find({
+      status: { $in: ["assigned", "accepted", "picked_up"] },
+      "recipientLocation.coordinates": {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [parseFloat(longitude), parseFloat(latitude)],
+          },
+          $maxDistance: parseInt(maxDistance),
+        },
+      },
+    }).limit(10);
+
+    res.json({
+      success: true,
+      count: deliveries.length,
+      deliveries,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error fetching deliveries: " + err.message });
+  }
+});
+
 // @route   GET /api/delivery/:id
 // @desc    Get single delivery
 // @access  Private
@@ -59,7 +93,7 @@ router.get("/:id", protect, async (req, res) => {
 // @route   POST /api/delivery/create
 // @desc    Create new delivery
 // @access  Private (Admin/Order System)
-router.post("/create", protect, async (req, res) => {
+router.post("/create", protect, authorize("admin"), async (req, res) => {
   try {
     const {
       type,
@@ -189,42 +223,6 @@ router.put("/:id/status", protect, authorize("delivery_partner"), async (req, re
     });
   } catch (err) {
     res.status(500).json({ error: "Error updating delivery: " + err.message });
-  }
-});
-
-// @route   GET /api/delivery/nearby
-// @desc    Get nearby deliveries for a partner
-// @access  Private (Delivery Partner)
-router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) => {
-  try {
-    const { longitude, latitude, maxDistance = 50000 } = req.query;
-
-    if (!longitude || !latitude) {
-      return res.status(400).json({ error: "Location coordinates are required" });
-    }
-
-    const deliveries = await Delivery.find({
-      status: { $in: ["assigned", "accepted", "picked_up"] },
-      recipientLocation: {
-        coordinates: {
-          $near: {
-            $geometry: {
-              type: "Point",
-              coordinates: [parseFloat(longitude), parseFloat(latitude)],
-            },
-            $maxDistance: parseInt(maxDistance),
-          },
-        },
-      },
-    }).limit(10);
-
-    res.json({
-      success: true,
-      count: deliveries.length,
-      deliveries,
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Error fetching deliveries: " + err.message });
   }
 });
 

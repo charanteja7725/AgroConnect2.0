@@ -140,7 +140,7 @@ router.get("/:orderId", protect, async (req, res) => {
 // @route   POST /api/payments/webhook
 // @desc    Stripe webhook for payment confirmations
 // @access  Public
-router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+router.post("/webhook", async (req, res) => {
   const sig = req.headers["stripe-signature"];
 
   try {

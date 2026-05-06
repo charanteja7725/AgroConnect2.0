@@ -1,5 +1,6 @@
 ﻿import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useNotification } from "./context/AppContext.jsx";
+import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
 import Home from "./pages/Home";
 import Login from "./pages/auth/Login";
@@ -41,21 +42,70 @@ function App() {
         <Route path="/roles" element={<RoleSelection />} />
         
         {/* Buyer Routes */}
-        <Route path="/buyer" element={<BuyerDashboard />} />
-        <Route path="/buyer/cart" element={<Cart />} />
+        <Route
+          path="/buyer"
+          element={
+            <ProtectedRoute allowedRoles={["buyer"]}>
+              <BuyerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/buyer/cart"
+          element={
+            <ProtectedRoute allowedRoles={["buyer"]}>
+              <Cart />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Farmer Routes */}
-        <Route path="/farmer" element={<FarmerDashboard />} />
-        <Route path="/farmer/add-product" element={<AddProduct />} />
+        <Route
+          path="/farmer"
+          element={
+            <ProtectedRoute allowedRoles={["farmer"]}>
+              <FarmerDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/farmer/add-product"
+          element={
+            <ProtectedRoute allowedRoles={["farmer"]}>
+              <AddProduct />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Fertilizer Routes */}
-        <Route path="/fertilizer" element={<FertilizerDashboard />} />
+        <Route
+          path="/fertilizer"
+          element={
+            <ProtectedRoute allowedRoles={["fertilizer_seller"]}>
+              <FertilizerDashboard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Delivery Routes */}
-        <Route path="/delivery" element={<DeliveryDashboard />} />
+        <Route
+          path="/delivery"
+          element={
+            <ProtectedRoute allowedRoles={["delivery_partner"]}>
+              <DeliveryDashboard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin Routes */}
-        <Route path="/admin" element={<AdminDashboard />} />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

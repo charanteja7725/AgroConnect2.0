@@ -184,11 +184,9 @@ router.post(
       await user.save();
 
       // In production, send email with reset link
-      // For now, return the token
       res.json({
         success: true,
         message: "Password reset email sent",
-        resetToken: resetToken, // Remove in production
       });
     } catch (err) {
       res.status(500).json({ error: "Error processing password reset: " + err.message });

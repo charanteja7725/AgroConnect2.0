@@ -20,7 +20,7 @@ Bundles the app for production.
 Create a `.env` file in `client/` with:
 
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=http://localhost:5001/api
 ```
 
 ## Frontend Features

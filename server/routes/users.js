@@ -4,28 +4,6 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// @route   GET /api/users/:id
-// @desc    Get user by ID
-// @access  Public
-router.get("/:id", async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id).select(
-      "-password -resetPasswordToken -resetPasswordExpire"
-    );
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    res.json({
-      success: true,
-      user: user.getProfile(),
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Error fetching user: " + err.message });
-  }
-});
-
 // @route   GET /api/users/search/nearby
 // @desc    Get nearby farmers/sellers by geolocation
 // @access  Public
@@ -58,6 +36,28 @@ router.get("/search/nearby", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Error searching users: " + err.message });
+  }
+});
+
+// @route   GET /api/users/:id
+// @desc    Get user by ID
+// @access  Private
+router.get("/:id", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select(
+      "-password -resetPasswordToken -resetPasswordExpire"
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      user: user.getProfile(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error fetching user: " + err.message });
   }
 });
 

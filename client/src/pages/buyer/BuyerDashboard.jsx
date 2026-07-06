@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { productAPI, cartAPI } from "../../services/api.js";
-import { useAuth, useNotification } from "../../context/AppContext.jsx";
+import { useAuth, useNotification } from "../../context/AppHooks.js";
 import VoiceSearch from "../../components/VoiceSearch.jsx";
 import { LocationService } from "../../services/LocationService.js";
 import "./buyerdashboard.css";
@@ -13,11 +13,13 @@ const BuyerDashboard = () => {
   const [searchText, setSearchText] = useState("");
   const [locationInfo, setLocationInfo] = useState(null);
   const [locationAddress, setLocationAddress] = useState("");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [productType, setProductType] = useState("all");
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const loadProducts = async (location = null, search = "") => {
+  const loadProducts = useCallback(async (location = null, search = "") => {
     setLoading(true);
     setError("");
     try {
@@ -25,10 +27,13 @@ const BuyerDashboard = () => {
       if (search) {
         query.search = search;
       }
-      if (location?.latitude && location?.longitude) {
+      if (productType && productType !== "all") {
+        query.type = productType;
+      }
+      if (location?.latitude && location?.longitude && locationFilter !== "all") {
         query.latitude = location.latitude;
         query.longitude = location.longitude;
-        query.maxDistance = 20000;
+        query.maxDistance = locationFilter === "within5" ? 5000 : 20000;
       }
       const data = await productAPI.getAllProducts(query);
       setProducts(data.products || []);
@@ -37,11 +42,11 @@ const BuyerDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [locationFilter, productType]);
 
   useEffect(() => {
     loadProducts(null, searchText);
-  }, []);
+  }, [loadProducts, searchText]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -51,7 +56,7 @@ const BuyerDashboard = () => {
     }, 500);
 
     return () => clearTimeout(handler);
-  }, [searchText, locationInfo]);
+  }, [loadProducts, searchText, locationInfo, productType, locationFilter]);
 
   const filteredProducts = useMemo(() => {
     if (!searchText) return products;
@@ -70,6 +75,59 @@ const BuyerDashboard = () => {
       addNotification("Product added to cart", "success");
     } catch (err) {
       addNotification(err.message || "Unable to add item to cart", "error");
+    }
+  };
+
+  const getDistanceLabel = (product) => {
+    const coords = product.location?.coordinates;
+    if (
+      locationInfo?.latitude &&
+      locationInfo?.longitude &&
+      Array.isArray(coords) &&
+      coords.length === 2 &&
+      coords[0] !== 0 &&
+      coords[1] !== 0
+    ) {
+      return `${LocationService.calculateDistance(
+        locationInfo.latitude,
+        locationInfo.longitude,
+        coords[1],
+        coords[0]
+      )} km away`;
+    }
+    return null;
+  };
+
+  const resolveLocationForSearch = async () => {
+    if (locationInfo?.latitude && locationInfo?.longitude) {
+      return locationInfo;
+    }
+
+    const location = await LocationService.getCurrentLocation();
+    setLocationInfo(location);
+
+    const address = await LocationService.reverseGeocode(location.latitude, location.longitude);
+    setLocationAddress(
+      address
+        ? `${address.city || address.town || address.village || ""}, ${address.state || ""}`.trim()
+        : "Current location"
+    );
+
+    return location;
+  };
+
+  const handleLocationFilterChange = async (value) => {
+    setLocationFilter(value);
+    if (value === "all") {
+      loadProducts(locationInfo, searchText);
+      return;
+    }
+
+    try {
+      const location = await resolveLocationForSearch();
+      loadProducts(location, searchText);
+    } catch (error) {
+      setError(error.message || "Unable to retrieve location");
     }
   };
 
@@ -114,16 +172,29 @@ const BuyerDashboard = () => {
         {/* Search */}
         <div className="search-bar-wrapper">
           <div className="search-bar">
-            <select>
-              <option>All Areas</option>
-              <option>Nearby</option>
-              <option>Within 5 km</option>
+            <select value={locationFilter} onChange={(e) => handleLocationFilterChange(e.target.value)}>
+              <option value="all">All Areas</option>
+              <option value="nearby">Nearby</option>
+              <option value="within5">Within 5 km</option>
+            </select>
+
+            <select value={productType} onChange={(e) => setProductType(e.target.value)}>
+              <option value="all">All Products</option>
+              <option value="produce">Produce</option>
+              <option value="fertilizer">Fertilizer</option>
             </select>
 
             <VoiceSearch
               onSearch={(value) => setSearchText(value)}
-              placeholder="Search for fresh vegetables, fruits, grains..."
+              placeholder="Search for products, fertilizers, sellers..."
             />
+
+            <button
+              className="store-btn"
+              onClick={() => navigate("/fertilizer-store")}
+            >
+              🧪 Fertilizer Store
+            </button>
 
             <button
               className="search-btn"
@@ -211,6 +282,9 @@ const BuyerDashboard = () => {
                   <h4>{product.name}</h4>
                   <p className="farmer-line">🌱 {product.sellerName || product.seller?.firstName || "Local Farmer"}</p>
                   <p className="distance-line">📍 {product.address || "Nearby"}</p>
+                  {getDistanceLabel(product) && (
+                    <p className="distance-line">📏 {getDistanceLabel(product)}</p>
+                  )}
 
                   <div className="product-meta">
                     <span className="product-price">₹{product.price}/kg</span>

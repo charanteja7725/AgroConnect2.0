@@ -1,8 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { authAPI } from "../services/api.js";
-
-// Create Auth Context
-export const AuthContext = createContext();
+import {
+  AuthContext,
+  CartContext,
+  LocationContext,
+  NotificationContext,
+} from "./ContextDefinitions.js";
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
@@ -39,7 +42,7 @@ export const AuthProvider = ({ children }) => {
             setUser(data.user);
             localStorage.setItem("agroconnect_user", JSON.stringify(data.user));
           }
-        } catch (err) {
+        } catch {
           logout();
         }
       }
@@ -54,17 +57,6 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-  return context;
-};
-
-// Create Cart Context
-export const CartContext = createContext();
-
 export const CartProvider = ({ children }) => {
   const [cart, setCart] = useState(() => {
     const savedCart = localStorage.getItem("agroconnect_cart");
@@ -75,14 +67,11 @@ export const CartProvider = ({ children }) => {
     setCart((prevCart) => {
       const existingItem = prevCart.find((item) => item.id === product.id);
 
-      let updatedCart;
-      if (existingItem) {
-        updatedCart = prevCart.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + (product.quantity || 1) } : item
-        );
-      } else {
-        updatedCart = [...prevCart, { ...product, quantity: product.quantity || 1 }];
-      }
+      const updatedCart = existingItem
+        ? prevCart.map((item) =>
+            item.id === product.id ? { ...item, quantity: item.quantity + (product.quantity || 1) } : item
+          )
+        : [...prevCart, { ...product, quantity: product.quantity || 1 }];
 
       localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
       return updatedCart;
@@ -112,41 +101,17 @@ export const CartProvider = ({ children }) => {
     localStorage.removeItem("agroconnect_cart");
   }, []);
 
-  const getTotalPrice = useCallback(() => {
-    return cart.reduce((total, item) => total + item.price * item.quantity, 0);
-  }, [cart]);
-
-  const getTotalItems = useCallback(() => {
-    return cart.reduce((total, item) => total + item.quantity, 0);
-  }, [cart]);
+  const getTotalPrice = useCallback(() => cart.reduce((total, item) => total + item.price * item.quantity, 0), [cart]);
+  const getTotalItems = useCallback(() => cart.reduce((total, item) => total + item.quantity, 0), [cart]);
 
   return (
     <CartContext.Provider
-      value={{
-        cart,
-        addToCart,
-        removeFromCart,
-        updateQuantity,
-        clearCart,
-        getTotalPrice,
-        getTotalItems,
-      }}
+      value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, getTotalPrice, getTotalItems }}
     >
       {children}
     </CartContext.Provider>
   );
 };
-
-export const useCart = () => {
-  const context = useContext(CartContext);
-  if (!context) {
-    throw new Error("useCart must be used within CartProvider");
-  }
-  return context;
-};
-
-// Create Location Context
-export const LocationContext = createContext();
 
 export const LocationProvider = ({ children }) => {
   const [location, setLocation] = useState(null);
@@ -182,17 +147,6 @@ export const LocationProvider = ({ children }) => {
   );
 };
 
-export const useLocation = () => {
-  const context = useContext(LocationContext);
-  if (!context) {
-    throw new Error("useLocation must be used within LocationProvider");
-  }
-  return context;
-};
-
-// Create Notification Context
-export const NotificationContext = createContext();
-
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
 
@@ -210,12 +164,4 @@ export const NotificationProvider = ({ children }) => {
       {children}
     </NotificationContext.Provider>
   );
-};
-
-export const useNotification = () => {
-  const context = useContext(NotificationContext);
-  if (!context) {
-    throw new Error("useNotification must be used within NotificationProvider");
-  }
-  return context;
 };

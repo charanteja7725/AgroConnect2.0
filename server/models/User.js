@@ -153,6 +153,9 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+// Ensure explicit geospatial index creation for user locations
+userSchema.index({ location: "2dsphere" });
+
 // Hash password before saving
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();

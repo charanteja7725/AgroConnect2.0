@@ -24,7 +24,7 @@ AgroConnect is a full-stack agricultural marketplace connecting farmers, buyers,
    ```
 3. Create a `.env` file with:
    ```env
-   PORT=5000
+   PORT=5001
    MONGO_URI=<your_mongo_connection_string>
    JWT_SECRET=<your_jwt_secret>
    JWT_EXPIRE=7d
@@ -45,7 +45,7 @@ AgroConnect is a full-stack agricultural marketplace connecting farmers, buyers,
    ```
 3. Create a `.env` file if needed:
    ```env
-   VITE_API_URL=http://localhost:5000/api
+   VITE_API_URL=http://localhost:5001/api
    ```
 4. Start the development server:
    ```bash

@@ -54,7 +54,7 @@ cp .env.example .env
 **Key Environment Variables:**
 ```env
 NODE_ENV=development
-PORT=5000
+PORT=5001
 CLIENT_URL=http://localhost:5173
 
 # MongoDB Connection
@@ -98,7 +98,7 @@ cp .env.example .env
 
 **Key Variables:**
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=http://localhost:5001/api
 ```
 
 ### 2. Build Configuration
@@ -173,7 +173,7 @@ npm start
 **Expected Output:**
 ```
 ✅ MongoDB Connected
-🚀 Server running at http://localhost:5000
+🚀 Server running at http://localhost:5001
 ```
 
 ### Terminal 2: Start Frontend Dev Server
@@ -328,7 +328,7 @@ Access to XMLHttpRequest blocked by CORS policy
 
 ### Port Already in Use
 ```
-Error: listen EADDRINUSE: address already in use :::5000
+Error: listen EADDRINUSE: address already in use :::5001
 ```
 **Solution:** Kill process or change PORT in `.env`
 
@@ -357,7 +357,7 @@ Use Postman or curl to test endpoints:
 
 ```bash
 # Login
-curl -X POST http://localhost:5000/api/auth/login \
+curl -X POST http://localhost:5001/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -365,10 +365,10 @@ curl -X POST http://localhost:5000/api/auth/login \
   }'
 
 # Get Products
-curl http://localhost:5000/api/products
+curl http://localhost:5001/api/products
 
 # Health Check
-curl http://localhost:5000/api/health
+curl http://localhost:5001/api/health
 ```
 
 ### Frontend Testing

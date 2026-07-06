@@ -1,11 +1,13 @@
 ﻿import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cartAPI, orderAPI } from "../../services/api.js";
-import { useNotification } from "../../context/AppContext.jsx";
+import { cartAPI, orderAPI, paymentAPI } from "../../services/api.js";
+import { LocationService } from "../../services/LocationService.js";
+import { useAuth, useNotification } from "../../context/AppHooks.js";
 import "./cart.css";
 
 const Cart = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { addNotification } = useNotification();
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,7 +23,9 @@ const Cart = () => {
     zipCode: "",
     country: "India",
     landmark: "",
+    coordinates: null,
   });
+  const [deliveryLocationNote, setDeliveryLocationNote] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("upi");
 
   const fetchCart = async () => {
@@ -40,6 +44,20 @@ const Cart = () => {
   useEffect(() => {
     fetchCart();
   }, []);
+
+  const loadRazorpayScript = () =>
+    new Promise((resolve) => {
+      if (window.Razorpay) {
+        return resolve(true);
+      }
+
+      const script = document.createElement("script");
+      script.id = "razorpay-script";
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
 
   const handleQuantityChange = async (item, delta) => {
     const nextQuantity = item.quantity + delta;
@@ -63,6 +81,75 @@ const Cart = () => {
     }
   };
 
+  const handleUseCurrentLocation = async () => {
+    setCheckoutError("");
+    setDeliveryLocationNote("");
+    try {
+      const coords = await LocationService.getCurrentLocation();
+      const addressData = await LocationService.reverseGeocode(coords.latitude, coords.longitude);
+      const newAddress = {
+        ...deliveryAddress,
+        street: addressData?.road || addressData?.suburb || deliveryAddress.street,
+        city: addressData?.city || addressData?.town || addressData?.village || deliveryAddress.city,
+        state: addressData?.state || deliveryAddress.state,
+        zipCode: addressData?.postcode || deliveryAddress.zipCode,
+        country: addressData?.country || deliveryAddress.country,
+        coordinates: {
+          type: "Point",
+          coordinates: [coords.longitude, coords.latitude],
+        },
+      };
+
+      setDeliveryAddress(newAddress);
+      setDeliveryLocationNote(`Current location captured at ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`);
+    } catch (err) {
+      setCheckoutError(err.message || "Unable to fetch current location");
+    }
+  };
+
+  const openRazorpayCheckout = async (paymentData, order) => {
+    const options = {
+      key: paymentData.razorpayKey,
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      name: "AgroConnect",
+      description: `Payment for order ${order.orderNumber || order._id}`,
+      order_id: paymentData.razorpayOrderId,
+      handler: async (response) => {
+        try {
+          await paymentAPI.confirmPayment(paymentData.paymentId, order._id, {
+            razorpayPaymentId: response.razorpay_payment_id,
+            razorpayOrderId: response.razorpay_order_id,
+            razorpaySignature: response.razorpay_signature,
+          });
+
+          setCheckoutSuccess("Payment completed successfully. Redirecting...");
+          addNotification("Payment successful", "success");
+          setTimeout(() => navigate("/buyer"), 1400);
+        } catch (err) {
+          setCheckoutError(err.message || "Payment confirmation failed");
+          addNotification(err.message || "Payment confirmation failed", "error");
+        }
+      },
+      prefill: {
+        name: deliveryAddress.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`,
+        email: user?.email || "",
+        contact: deliveryAddress.phone || user?.phone || "",
+      },
+      theme: {
+        color: "#009933",
+      },
+      modal: {
+        ondismiss: () => {
+          setCheckoutError("Payment was cancelled. You can try again.");
+        },
+      },
+    };
+
+    const razorpayInstance = new window.Razorpay(options);
+    razorpayInstance.open();
+  };
+
   const handleCheckout = async () => {
     setCheckoutError("");
     setCheckoutSuccess("");
@@ -72,14 +159,38 @@ const Cart = () => {
       return;
     }
 
+    if (!cart?.items?.length) {
+      setCheckoutError("Your cart is empty.");
+      return;
+    }
+
     try {
-      await orderAPI.createOrder({ deliveryAddress, paymentMethod });
-      setCheckoutSuccess("Order created successfully. Redirecting to dashboard...");
-      addNotification("Order placed successfully", "success");
-      setTimeout(() => navigate("/buyer"), 1500);
+      setLoading(true);
+      const orderResponse = await orderAPI.createOrder({ deliveryAddress, paymentMethod });
+      const order = orderResponse.order;
+
+      if (!order || !order._id || order.totalAmount == null) {
+        throw new Error("Invalid order response. Please try again.");
+      }
+
+      const paymentResponse = await paymentAPI.createPaymentIntent(order._id, Number(order.totalAmount));
+
+      if (!paymentResponse || !paymentResponse.razorpayOrderId) {
+        throw new Error(paymentResponse?.error || "Invalid Razorpay response");
+      }
+
+      const loaded = await loadRazorpayScript();
+      if (!loaded || !window.Razorpay) {
+        throw new Error("Razorpay Checkout could not be loaded. Please refresh the page.");
+      }
+
+      openRazorpayCheckout(paymentResponse, order);
     } catch (err) {
-      setCheckoutError(err.message || "Unable to complete checkout");
-      addNotification(err.message || "Checkout failed", "error");
+      const message = err.message || err || "Unable to complete checkout";
+      setCheckoutError(message);
+      addNotification(message, "error");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -155,6 +266,10 @@ const Cart = () => {
 
           <div className="checkout-section">
             <h4>Delivery Address</h4>
+            <div className="location-toolbar">
+              <button className="location-btn" onClick={handleUseCurrentLocation}>📍 Use My Current Location</button>
+              {deliveryLocationNote && <span className="location-note">{deliveryLocationNote}</span>}
+            </div>
             <input
               type="text"
               placeholder="Full Name"

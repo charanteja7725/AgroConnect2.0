@@ -1,74 +1,295 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AppContext.jsx";
+import { useAuth } from "../../context/AppHooks.js";
+import { orderAPI, pricingAPI, productAPI } from "../../services/api.js";
 import "./fertilizerdashboard.css";
 
 const FertilizerDashboard = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+  const [activeSection, setActiveSection] = useState("dashboard");
+  const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [stats, setStats] = useState({
+    totalProducts: 0,
+    activeOrders: 0,
+    revenue: 0,
+    rating: 0,
+  });
+  const [priceEstimates, setPriceEstimates] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [orderUpdating, setOrderUpdating] = useState(false);
 
-  const products = [
-    {
-      id: 1,
-      name: "NPK Fertilizer 20-20-20",
-      category: "Chemical",
-      price: 450,
-      stock: 100,
-      demand: "High",
-      image: "🧪",
-    },
-    {
-      id: 2,
-      name: "Organic Compost",
-      category: "Organic",
-      price: 300,
-      stock: 150,
-      demand: "Medium",
-      image: "♻️",
-    },
-    {
-      id: 3,
-      name: "Urea Fertilizer",
-      category: "Chemical",
-      price: 350,
-      stock: 80,
-      demand: "High",
-      image: "🧪",
-    },
-  ];
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    const loadData = async () => {
+      try {
+        const [productRes, orderRes] = await Promise.all([
+          productAPI.getSellerProducts(user._id),
+          orderAPI.getOrders(),
+        ]);
 
-  const orders = [
-    {
-      id: 101,
-      farmer: "Ramesh Kumar",
-      product: "NPK Fertilizer",
-      qty: 50,
-      amount: 22500,
-      status: "Pending",
-      date: "2024-05-02",
-    },
-    {
-      id: 102,
-      farmer: "Suresh Patel",
-      product: "Organic Compost",
-      qty: 100,
-      amount: 30000,
-      status: "Delivered",
-      date: "2024-04-28",
-    },
-    {
-      id: 103,
-      farmer: "Anil Sharma",
-      product: "Urea Fertilizer",
-      qty: 30,
-      amount: 10500,
-      status: "Processing",
-      date: "2024-05-01",
-    },
-  ];
+        const sellerOrders = (orderRes.orders || []).filter((order) =>
+          order.items?.some((item) =>
+            item.seller?._id?.toString() === user._id || item.seller?.toString() === user._id
+          )
+        );
+
+        const revenue = sellerOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+
+        setProducts(productRes.products || []);
+        setOrders(sellerOrders);
+        setStats({
+          totalProducts: productRes.count || 0,
+          activeOrders: sellerOrders.filter((order) => order.status !== "delivered" && order.status !== "cancelled").length,
+          revenue,
+          rating: user?.rating || 0,
+        });
+      } catch (err) {
+        console.error("Error loading fertilizer dashboard", err);
+        setError(err.message || "Unable to load dashboard data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user]);
+
+  const handleGetPriceSuggestion = async (product) => {
+    try {
+      const response = await pricingAPI.suggestPrice(
+        product.type || product.category || "fertilizer",
+        product.category || "general",
+        product.quantity || 1,
+        product.price || 0
+      );
+      setPriceEstimates((prev) => ({
+        ...prev,
+        [product._id]: response.suggestedPrice || response.price || product.price,
+      }));
+    } catch (err) {
+      console.error("Error fetching price recommendation", err);
+    }
+  };
+
+  const handleOrderStatusUpdate = async (orderId, nextStatus) => {
+    setOrderUpdating(true);
+    try {
+      await orderAPI.updateOrderStatus(orderId, nextStatus, `Updated by seller to ${nextStatus}`);
+      const orderRes = await orderAPI.getOrders();
+      const sellerOrders = (orderRes.orders || []).filter((order) =>
+        order.items?.some((item) =>
+          item.seller?._id?.toString() === user._id || item.seller?.toString() === user._id
+        )
+      );
+      setOrders(sellerOrders);
+      setStats((prev) => ({
+        ...prev,
+        activeOrders: sellerOrders.filter((order) =>
+          order.status !== "delivered" && order.status !== "cancelled"
+        ).length,
+      }));
+    } catch (err) {
+      console.error("Error updating order status", err);
+      setError(err.message || "Unable to update order status");
+    } finally {
+      setOrderUpdating(false);
+    }
+  };
+
+  const renderSectionContent = () => {
+    switch (activeSection) {
+      case "my-products":
+        return (
+          <div className="dashboard-section">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3>My Products</h3>
+              <button
+                className="section-action"
+                onClick={() => navigate("/fertilizer/add-product")}
+              >
+                + Add New Product
+              </button>
+            </div>
+            <div className="product-grid-fer">
+              {loading ? (
+                <p>Loading products...</p>
+              ) : products.length === 0 ? (
+                <p className="placeholder-text">You haven't listed any fertilizers yet.</p>
+              ) : (
+                products.map((product) => (
+                  <div className="fertilizer-product-card" key={product._id}>
+                    <div className="product-icon">🧪</div>
+                    <h4>{product.name}</h4>
+                    <p className="product-category">{product.category || product.type}</p>
+                    <div className="product-details">
+                      <div>
+                        <span className="label">Price:</span>
+                        <span className="value">₹{product.price}</span>
+                      </div>
+                      <div>
+                        <span className="label">Stock:</span>
+                        <span className="value">{product.quantity || 0} {product.unit || "units"}</span>
+                      </div>
+                    </div>
+                    <div className="demand-badge" data-demand={product.quantity > 50 ? "High" : "Medium"}>
+                      {product.quantity > 50 ? "High" : "Medium"} Stock
+                    </div>
+                    <button className="btn-small" onClick={() => handleGetPriceSuggestion(product)}>
+                      Get Price Tip
+                    </button>
+                    {priceEstimates[product._id] && (
+                      <p className="price-estimate">Suggested: ₹{priceEstimates[product._id]}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        );
+
+      case "orders":
+        return (
+          <div className="dashboard-section">
+            <h3>Recent Orders from Farmers</h3>
+            <div className="table-wrapper">
+              <table className="orders-table">
+                <thead>
+                  <tr>
+                    <th>Order ID</th>
+                    <th>Farmer</th>
+                    <th>Products</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="placeholder-text">No orders found</td>
+                    </tr>
+                  ) : (
+                    orders.slice(0, 6).map((order) => (
+                      <tr key={order._id}>
+                        <td className="order-id">#{order.orderNumber?.slice(-6) || order._id.slice(-6)}</td>
+                        <td>{order.buyer?.firstName} {order.buyer?.lastName}</td>
+                        <td>{order.items?.map((item) => item.productName).join(", ")}</td>
+                        <td className="amount">₹{order.totalAmount}</td>
+                        <td>
+                          <span className={`status-badge ${order.status || "pending"}`}>
+                            {order.status}
+                          </span>
+                        </td>
+                        <td>{new Date(order.createdAt).toLocaleDateString()}</td>
+                        <td>
+                          {order.status === "pending" && (
+                            <button className="status-action-btn" disabled={orderUpdating} onClick={() => handleOrderStatusUpdate(order._id, "confirmed")}>Confirm</button>
+                          )}
+                          {order.status === "confirmed" && (
+                            <button className="status-action-btn" disabled={orderUpdating} onClick={() => handleOrderStatusUpdate(order._id, "processing")}>Process</button>
+                          )}
+                          {order.status === "processing" && (
+                            <button className="status-action-btn" disabled={orderUpdating} onClick={() => handleOrderStatusUpdate(order._id, "shipped")}>Ship</button>
+                          )}
+                          {order.status === "shipped" && (
+                            <button className="status-action-btn" disabled={orderUpdating} onClick={() => handleOrderStatusUpdate(order._id, "delivered")}>Deliver</button>
+                          )}
+                          {['delivered', 'cancelled'].includes(order.status) && <span>Done</span>}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+
+      case "profile":
+        return (
+          <div className="dashboard-section">
+            <h3>Your Profile</h3>
+            {user && (
+              <div className="profile-card">
+                <p><strong>Name:</strong> {user.firstName} {user.lastName}</p>
+                <p><strong>Email:</strong> {user.email}</p>
+                <p><strong>Phone:</strong> {user.phone}</p>
+                <p><strong>Role:</strong> {user.role}</p>
+                <p><strong>Total Earnings:</strong> ₹{user.totalEarnings || 0}</p>
+                <p><strong>Total Orders:</strong> {user.totalOrders || 0}</p>
+                <button
+                  className="section-action"
+                  onClick={() => navigate("/profile")}
+                >
+                  Edit Profile
+                </button>
+              </div>
+            )}
+          </div>
+        );
+
+      default:
+        return (
+          <>
+            <div className="welcome-card fertilizer-welcome">
+              <h2>Welcome, Fertilizer Seller 👋</h2>
+              <p>Manage your fertilizer products and reach farmers directly</p>
+            </div>
+
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon">📦</div>
+                <div className="stat-content">
+                  <h4>Total Products</h4>
+                  <p className="stat-number">{stats.totalProducts}</p>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon">📋</div>
+                <div className="stat-content">
+                  <h4>Active Orders</h4>
+                  <p className="stat-number">{stats.activeOrders}</p>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon">💰</div>
+                <div className="stat-content">
+                  <h4>This Month Revenue</h4>
+                  <p className="stat-number">₹{stats.revenue.toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon">⭐</div>
+                <div className="stat-content">
+                  <h4>Rating</h4>
+                  <p className="stat-number">{stats.rating.toFixed(1) || "0.0"}/5</p>
+                </div>
+              </div>
+            </div>
+
+            {error && <div className="error-state">{error}</div>}
+
+            <div className="dashboard-section">
+              <h3>Quick Actions</h3>
+              <div className="action-buttons">
+                <button className="action-btn primary" onClick={() => navigate("/fertilizer/add-product")}>➕ Add New Product</button>
+                <button className="action-btn">📊 View Analytics</button>
+                <button className="action-btn">🚚 Track Deliveries</button>
+                <button className="action-btn">💬 Messages</button>
+              </div>
+            </div>
+          </>
+        );
+    }
+  };
 
   return (
     <div className="fertilizer-dashboard-page">
-      {/* Topbar */}
       <div className="fertilizer-topbar">
         <div className="fertilizer-topbar-inner">
           <div className="fertilizer-brand">🌱 AgroConnect</div>
@@ -85,165 +306,21 @@ const FertilizerDashboard = () => {
       </div>
 
       <div className="fertilizer-layout">
-        {/* Sidebar */}
         <div className="fertilizer-sidebar">
           <h3 className="sidebar-title">📋 Fertilizer Seller</h3>
-
-          <div className="sidebar-item active">Dashboard</div>
-          <div className="sidebar-item">Add Product</div>
-          <div className="sidebar-item">My Products</div>
-          <div className="sidebar-item">Orders</div>
+          <div className={`sidebar-item ${activeSection === "dashboard" ? "active" : ""}`} onClick={() => setActiveSection("dashboard")}>Dashboard</div>
+          <div className={`sidebar-item ${activeSection === "my-products" ? "active" : ""}`} onClick={() => setActiveSection("my-products")}>My Products</div>
+          <div className={`sidebar-item ${activeSection === "orders" ? "active" : ""}`} onClick={() => setActiveSection("orders")}>Orders</div>
+          <div className={`sidebar-item ${activeSection === "profile" ? "active" : ""}`} onClick={() => setActiveSection("profile")}>Profile</div>
+          <div className="sidebar-item" onClick={() => navigate("/fertilizer/add-product")}>Add Product</div>
           <div className="sidebar-item">Inventory</div>
           <div className="sidebar-item">AI Price Tips</div>
           <div className="sidebar-item">Payments</div>
-          <div className="sidebar-item">Profile</div>
           <div className="sidebar-item">Logout</div>
         </div>
 
-        {/* Main Content */}
         <div className="fertilizer-main">
-          {/* Welcome Card */}
-          <div className="welcome-card fertilizer-welcome">
-            <h2>Welcome, Fertilizer Seller 👋</h2>
-            <p>Manage your fertilizer products and reach farmers directly</p>
-          </div>
-
-          {/* Summary Stats */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-icon">📦</div>
-              <div className="stat-content">
-                <h4>Total Products</h4>
-                <p className="stat-number">8</p>
-              </div>
-            </div>
-
-            <div className="stat-card">
-              <div className="stat-icon">📋</div>
-              <div className="stat-content">
-                <h4>Active Orders</h4>
-                <p className="stat-number">12</p>
-              </div>
-            </div>
-
-            <div className="stat-card">
-              <div className="stat-icon">💰</div>
-              <div className="stat-content">
-                <h4>This Month Revenue</h4>
-                <p className="stat-number">₹1,45,000</p>
-              </div>
-            </div>
-
-            <div className="stat-card">
-              <div className="stat-icon">⭐</div>
-              <div className="stat-content">
-                <h4>Rating</h4>
-                <p className="stat-number">4.8/5</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="dashboard-section">
-            <h3>Quick Actions</h3>
-            <div className="action-buttons">
-              <button className="action-btn primary">➕ Add New Product</button>
-              <button className="action-btn">📊 View Analytics</button>
-              <button className="action-btn">🚚 Track Deliveries</button>
-              <button className="action-btn">💬 Messages</button>
-            </div>
-          </div>
-
-          {/* Products Overview */}
-          <div className="dashboard-section">
-            <div className="section-header">
-              <h3>Your Fertilizer Products</h3>
-              <button className="view-all-btn">View All →</button>
-            </div>
-
-            <div className="product-grid-fer">
-              {products.map((product) => (
-                <div className="fertilizer-product-card" key={product.id}>
-                  <div className="product-icon">{product.image}</div>
-                  <h4>{product.name}</h4>
-                  <p className="product-category">{product.category}</p>
-                  <div className="product-details">
-                    <div>
-                      <span className="label">Price:</span>
-                      <span className="value">₹{product.price}</span>
-                    </div>
-                    <div>
-                      <span className="label">Stock:</span>
-                      <span className="value">{product.stock} bags</span>
-                    </div>
-                  </div>
-                  <div className="demand-badge" data-demand={product.demand}>
-                    {product.demand} Demand
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Recent Orders */}
-          <div className="dashboard-section">
-            <div className="section-header">
-              <h3>Recent Orders from Farmers</h3>
-              <button className="view-all-btn">View All →</button>
-            </div>
-
-            <div className="table-wrapper">
-              <table className="orders-table">
-                <thead>
-                  <tr>
-                    <th>Order ID</th>
-                    <th>Farmer</th>
-                    <th>Product</th>
-                    <th>Quantity</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((order) => (
-                    <tr key={order.id}>
-                      <td className="order-id">#{order.id}</td>
-                      <td>{order.farmer}</td>
-                      <td>{order.product}</td>
-                      <td>{order.qty} bags</td>
-                      <td className="amount">₹{order.amount}</td>
-                      <td>
-                        <span className={`status-badge ${order.status.toLowerCase()}`}>
-                          {order.status}
-                        </span>
-                      </td>
-                      <td>{order.date}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* AI Price Recommendations */}
-          <div className="dashboard-section">
-            <h3>🤖 AI Price Recommendations</h3>
-            <div className="recommendations-box">
-              <div className="recommendation">
-                <p>
-                  <strong>NPK Fertilizer:</strong> Current price ₹450. Market analysis suggests you could increase
-                  to ₹480 while remaining competitive. Demand is High.
-                </p>
-              </div>
-              <div className="recommendation">
-                <p>
-                  <strong>Organic Compost:</strong> Current price ₹300. Competitor average is ₹320. Consider
-                  maintaining current price for volume advantage.
-                </p>
-              </div>
-            </div>
-          </div>
+          {renderSectionContent()}
         </div>
       </div>
     </div>

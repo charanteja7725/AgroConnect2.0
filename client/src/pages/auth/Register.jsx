@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { authAPI } from "../../services/api.js";
-import { useAuth } from "../../context/AppContext.jsx";
-import { useNotification } from "../../context/AppContext.jsx";
+import { useAuth, useNotification } from "../../context/AppHooks.js";
 import "./login.css";
 
 const Register = () => {

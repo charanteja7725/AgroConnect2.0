@@ -40,18 +40,17 @@ router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) =
   try {
     const { longitude, latitude, maxDistance = 50000 } = req.query;
 
-    if (!longitude || !latitude) {
-      return res.status(400).json({ error: "Location coordinates are required" });
-    }
-
-    const deliveries = await Delivery.find({
+    const query = {
       $or: [
         { deliveryPartner: req.user._id },
         { deliveryPartner: { $exists: false } },
         { deliveryPartner: null },
       ],
       status: { $in: ["assigned", "accepted", "picked_up"] },
-      "recipientLocation": {
+    };
+
+    if (longitude && latitude) {
+      query.recipientLocation = {
         $near: {
           $geometry: {
             type: "Point",
@@ -59,8 +58,10 @@ router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) =
           },
           $maxDistance: parseInt(maxDistance),
         },
-      },
-    }).limit(15);
+      };
+    }
+
+    const deliveries = await Delivery.find(query).limit(15);
 
     res.json({
       success: true,

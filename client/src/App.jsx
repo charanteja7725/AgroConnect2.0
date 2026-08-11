@@ -15,6 +15,7 @@ import Cart from "./pages/buyer/Cart";
 import FertilizerDashboard from "./pages/fertilizer/FertilizerDashboard";
 import DeliveryDashboard from "./pages/delivery/DeliveryDashboard";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import NotFound from "./pages/NotFound.jsx";
 
 function NotificationList() {
   const { notifications } = useNotification();
@@ -134,6 +135,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

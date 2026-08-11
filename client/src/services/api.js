@@ -106,7 +106,30 @@ export const userAPI = {
       method: "POST",
       body: JSON.stringify({ rating, comment }),
     }),
+
+  // Farmer Verification
+  submitVerification: (data) =>
+    apiRequest("/users/verify/submit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getPendingVerifications: (status = "pending") =>
+    apiRequest(`/users/verify/pending?status=${status}`),
+
+  reviewVerification: (farmerId, action, notes, rejectionReason, moreInfoRequest) =>
+    apiRequest(`/users/verify/${farmerId}`, {
+      method: "PUT",
+      body: JSON.stringify({ action, notes, rejectionReason, moreInfoRequest }),
+    }),
+
+  suspendUser: (userId, action) =>
+    apiRequest(`/users/${userId}/suspend`, {
+      method: "PUT",
+      body: JSON.stringify({ action }),
+    }),
 };
+
 
 // Product APIs
 export const productAPI = {

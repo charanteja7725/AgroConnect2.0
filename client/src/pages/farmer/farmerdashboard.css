@@ -1095,4 +1095,92 @@
   .profile-details-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Verification Section */
+.verification-status-box {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.5rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.verification-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.verification-badge.status-not_submitted { background: #f1f5f9; color: #64748b; }
+.verification-badge.status-pending { background: #fef9c3; color: #854d0e; }
+.verification-badge.status-more_information_required { background: #dbeafe; color: #1e40af; }
+.verification-badge.status-verified { background: #dcfce7; color: #166534; }
+.verification-badge.status-rejected { background: #fee2e2; color: #991b1b; }
+.verification-badge.status-suspended { background: #fce7f3; color: #9f1239; }
+
+.admin-review-note { margin-top: 0.5rem; font-size: 0.875rem; color: #374151; }
+.admin-review-note.error-note { color: #b91c1c; }
+.admin-review-note.info-note { color: #1d4ed8; }
+
+.verification-form {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.verification-form h4 { margin-bottom: 0.5rem; color: #1a2e05; }
+.info-text { font-size: 0.875rem; color: #64748b; margin-bottom: 1rem; }
+
+.verification-feedback {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.verification-feedback.success { background: #dcfce7; color: #166534; }
+.verification-feedback.error { background: #fee2e2; color: #991b1b; }
+
+.verification-success-banner, .verification-pending-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+  margin-top: 1rem;
+}
+
+.verification-success-banner {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  border: 1px solid #86efac;
+}
+
+.verification-pending-banner {
+  background: linear-gradient(135deg, #fef9c3 0%, #fde68a 100%);
+  border: 1px solid #fbbf24;
+}
+
+.verification-success-banner span, .verification-pending-banner span {
+  font-size: 2rem;
+}
+
+.verification-success-banner h4, .verification-pending-banner h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  color: #1a2e05;
+}
+
+.verification-success-banner p, .verification-pending-banner p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #374151;
 }

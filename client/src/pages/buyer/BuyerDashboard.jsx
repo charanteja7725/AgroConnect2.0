@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { productAPI, cartAPI } from "../../services/api.js";
+import { productAPI, orderAPI } from "../../services/api.js";
 import { useAuth, useCart, useNotification } from "../../context/AppHooks.js";
 import VoiceSearch from "../../components/VoiceSearch.jsx";
 import { LocationService } from "../../services/LocationService.js";
@@ -9,8 +9,9 @@ import "./buyerdashboard.css";
 const BuyerDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { cart, getTotalItems } = useCart();
+  const { cart, getTotalItems, addToCart } = useCart();
   const { addNotification } = useNotification();
+  const [activeTab, setActiveTab] = useState("marketplace");
   const [searchText, setSearchText] = useState("");
   const [locationInfo, setLocationInfo] = useState(null);
   const [locationAddress, setLocationAddress] = useState("");
@@ -19,6 +20,9 @@ const BuyerDashboard = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState("");
 
   const loadProducts = useCallback(async (location = null, search = "") => {
     setLoading(true);
@@ -45,9 +49,28 @@ const BuyerDashboard = () => {
     }
   }, [locationFilter, productType]);
 
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    setOrdersError("");
+    try {
+      const res = await orderAPI.getOrders();
+      setOrders(res.orders || []);
+    } catch (err) {
+      setOrdersError(err.message || "Unable to fetch orders");
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadProducts(null, searchText);
   }, [loadProducts, searchText]);
+
+  useEffect(() => {
+    if (activeTab === "orders") {
+      loadOrders();
+    }
+  }, [activeTab, loadOrders]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -70,10 +93,11 @@ const BuyerDashboard = () => {
     );
   }, [products, searchText]);
 
-  const handleAddToCart = async (productId) => {
+  const handleAddToCart = async (product) => {
     try {
-      await cartAPI.addToCart(productId, 1);
-      if (addNotification) addNotification("Product added to cart", "success");
+      const productId = typeof product === "string" ? product : (product._id || product.id);
+      await addToCart(productId, 1);
+      if (addNotification) addNotification("Product added to cart! 🛒", "success");
     } catch (err) {
       if (addNotification) addNotification(err.message || "Unable to add item to cart", "error");
     }
@@ -139,7 +163,7 @@ const BuyerDashboard = () => {
       {/* Topbar */}
       <header className="farmer-navbar">
         <div className="navbar-left">
-          <div className="brand-logo" onClick={() => navigate("/buyer")}>
+          <div className="brand-logo" onClick={() => { setActiveTab("marketplace"); navigate("/buyer"); }}>
             <span className="brand-leaf">🌱</span>
             <span className="brand-title">AgroConnect</span>
             <span className="portal-badge">Buyer Marketplace</span>
@@ -155,10 +179,19 @@ const BuyerDashboard = () => {
           </button>
 
           <button
-            className="navbar-btn-add"
-            onClick={() => navigate("/buyer/cart")}
+            className={`navbar-btn-market ${activeTab === "orders" ? "active" : ""}`}
+            onClick={() => setActiveTab("orders")}
+            style={{ background: activeTab === "orders" ? "#16a34a" : undefined }}
           >
-            🛒 Cart ({cartCount})
+            📋 My Orders
+          </button>
+
+          <button
+            className="navbar-cart-btn"
+            onClick={() => navigate("/buyer/cart")}
+            title="View Cart"
+          >
+            🛒 <span className="cart-count-badge">{getTotalItems() > 0 ? getTotalItems() : ""}</span> Cart
           </button>
 
           <div className="user-profile-menu">
@@ -184,57 +217,131 @@ const BuyerDashboard = () => {
         {/* Banner */}
         <div className="welcome-banner-card">
           <div className="banner-text">
-            <h2>Fresh Farm Crops & Agriculture Market 🌾</h2>
-            <p>Directly purchase fresh produce and fertilizers from verified local sellers.</p>
+            {activeTab === "orders" ? (
+              <><h2>My Orders 📋</h2><p>Track your placed orders and their current delivery status.</p></>
+            ) : (
+              <><h2>Fresh Farm Crops & Agriculture Market 🌾</h2><p>Directly purchase fresh produce and fertilizers from verified local sellers.</p></>
+            )}
           </div>
-          <button
-            className="banner-primary-btn"
-            onClick={() => navigate("/fertilizer-store")}
-          >
-            Browse Fertilizer Store →
-          </button>
+          {activeTab === "marketplace" && (
+            <button
+              className="banner-primary-btn"
+              onClick={() => navigate("/fertilizer-store")}
+            >
+              Browse Fertilizer Store →
+            </button>
+          )}
+          {activeTab === "orders" && (
+            <button
+              className="banner-primary-btn"
+              onClick={() => setActiveTab("marketplace")}
+            >
+              ← Back to Marketplace
+            </button>
+          )}
         </div>
+
+        {/* My Orders Tab */}
+        {activeTab === "orders" && (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>Order History</h3>
+              <p className="subtext">All orders you have placed on AgroConnect</p>
+            </div>
+            {ordersLoading ? (
+              <div className="loading-state"><div className="spinner"></div><p>Loading your orders...</p></div>
+            ) : ordersError ? (
+              <div className="error-banner">{ordersError}</div>
+            ) : orders.length === 0 ? (
+              <div className="empty-state-box">
+                <div className="empty-icon">📦</div>
+                <h4>No Orders Yet</h4>
+                <p>You haven't placed any orders. Start shopping in the marketplace!</p>
+                <button className="btn-primary-action" onClick={() => setActiveTab("marketplace")}>Browse Products →</button>
+              </div>
+            ) : (
+              <div className="orders-list">
+                {orders.map((order) => (
+                  <div key={order._id} className="farmer-order-card">
+                    <div className="order-card-header">
+                      <div>
+                        <span className="order-id">Order #{order._id?.substring(0, 8)}</span>
+                        <span className="order-date">
+                          {order.createdAt ? new Date(order.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "Recent"}
+                        </span>
+                      </div>
+                      <span className={`status-pill status-${order.status || "pending"}`}>
+                        {order.status || "pending"}
+                      </span>
+                    </div>
+                    <div className="order-card-body">
+                      {order.items?.map((item, idx) => (
+                        <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f1f5f9", fontSize: "14px" }}>
+                          <span>🌿 {item.productName || "Product"} × {item.quantity}</span>
+                          <span style={{ fontWeight: 600, color: "#16a34a" }}>₹{item.totalPrice || (item.price * item.quantity)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="order-card-footer">
+                      <span style={{ fontWeight: 700, color: "#0f172a" }}>Total: ₹{order.totalAmount}</span>
+                      <span style={{ fontSize: "12px", color: "#64748b" }}>Payment: {order.payment?.method?.replace(/_/g, " ") || "N/A"} — {order.payment?.status || "pending"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "marketplace" && (
+          <>
+
 
         {/* Search & Filter Bar */}
         <div className="dashboard-section-card">
           <div className="search-bar-wrapper">
+            {/* Main search row: VoiceSearch + Search button only */}
             <div className="buyer-search-controls">
-              <select
-                className="filter-select"
-                value={locationFilter}
-                onChange={(e) => handleLocationFilterChange(e.target.value)}
-              >
-                <option value="all">📍 All Locations</option>
-                <option value="nearby">📍 Nearby Sellers</option>
-                <option value="within5">📍 Within 5 km</option>
-              </select>
-
-              <select
-                className="filter-select"
-                value={productType}
-                onChange={(e) => setProductType(e.target.value)}
-              >
-                <option value="all">📦 All Product Types</option>
-                <option value="produce">🥦 Fresh Produce</option>
-                <option value="fertilizer">🧪 Fertilizers & Seeds</option>
-              </select>
-
               <div className="voice-search-container">
                 <VoiceSearch
                   onSearch={(value) => setSearchText(value)}
-                  placeholder="Search products, crops, fertilizers..."
+                  placeholder="🔍 Search products, crops, fertilizers..."
                 />
               </div>
 
               <button
                 className="btn-primary-action"
+                style={{ whiteSpace: "nowrap", padding: "12px 20px", borderRadius: "12px" }}
                 onClick={() => loadProducts(locationInfo, searchText)}
               >
-                🔍 Search
+                Search
               </button>
             </div>
 
-            <div className="location-actions-bar">
+            {/* Secondary filter row */}
+            <div className="location-actions-bar" style={{ flexWrap: "wrap", gap: "10px", marginTop: "10px" }}>
+              <select
+                className="filter-select"
+                value={productType}
+                onChange={(e) => setProductType(e.target.value)}
+                style={{ flex: "none" }}
+              >
+                <option value="all">📦 All Types</option>
+                <option value="produce">🥦 Fresh Produce</option>
+                <option value="fertilizer">🧪 Fertilizers & Seeds</option>
+              </select>
+
+              <select
+                className="filter-select"
+                value={locationFilter}
+                onChange={(e) => handleLocationFilterChange(e.target.value)}
+                style={{ flex: "none" }}
+              >
+                <option value="all">🌍 All Locations</option>
+                <option value="nearby">📍 Nearby Sellers</option>
+                <option value="within5">📍 Within 5 km</option>
+              </select>
+
               <button
                 className="location-btn"
                 onClick={async () => {
@@ -255,6 +362,7 @@ const BuyerDashboard = () => {
               >
                 📍 Use My GPS Location
               </button>
+
               {locationInfo && (
                 <span className="location-hint">
                   {locationAddress
@@ -266,74 +374,76 @@ const BuyerDashboard = () => {
           </div>
         </div>
 
-        {/* Product Cards Grid */}
-        <div className="dashboard-section-card">
-          <div className="section-card-header">
-            <div>
-              <h3>Available Marketplace Listings</h3>
-              <p className="subtext">Direct listings from farmers & authorized sellers</p>
+          {/* Product Cards Grid */}
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <div>
+                <h3>Available Marketplace Listings</h3>
+                <p className="subtext">Direct listings from farmers & authorized sellers</p>
+              </div>
             </div>
+
+            {loading ? (
+              <div className="loading-state">
+                <div className="spinner"></div>
+                <p>Loading fresh marketplace listings...</p>
+              </div>
+            ) : error ? (
+              <div className="error-banner">{error}</div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="empty-state-box">
+                <div className="empty-icon">🌾</div>
+                <h4>No Products Found</h4>
+                <p>Try searching for a different crop name or clearing location filters.</p>
+              </div>
+            ) : (
+              <div className="products-grid">
+                {filteredProducts.map((product) => (
+                  <div className="farmer-product-card" key={product._id}>
+                    <div className="product-card-thumb">
+                      <img
+                        src={product.mainImage || product.images?.[0]?.url || "https://via.placeholder.com/300"}
+                        alt={product.name}
+                      />
+                      <span className="stock-badge in-stock">
+                        ⭐ {product.rating || "4.8"}
+                      </span>
+                    </div>
+
+                    <div className="product-card-content">
+                      <div className="product-category-tag">{product.type === "fertilizer" ? "🧪 Fertilizer" : "🌱 Produce"}</div>
+                      <h4 className="product-title">{product.name}</h4>
+                      <p className="subtext">
+                        Seller: <strong>{product.sellerName || product.seller?.firstName || "Local Seller"}</strong>
+                      </p>
+                      <p className="subtext">📍 {product.address || "Local Farm"}</p>
+                      {getDistanceLabel(product) && (
+                        <p className="subtext" style={{ color: "#16a34a", fontWeight: 600 }}>📏 {getDistanceLabel(product)}</p>
+                      )}
+
+                      <div style={{ marginTop: "12px" }}>
+                        <span className="product-price-tag">₹{product.price}</span>
+                        <span className="unit-text"> / {product.unit || "kg"}</span>
+                        <span style={{ float: "right", fontSize: "12px", color: "#64748b" }}>Stock: {product.quantity || 0} {product.unit || "kg"}</span>
+                      </div>
+
+                      <div className="product-card-actions" style={{ marginTop: "14px" }}>
+                        <button
+                          className="btn-primary-action"
+                          style={{ width: "100%", padding: "10px" }}
+                          onClick={() => handleAddToCart(product)}
+                        >
+                          🛒 Add to Cart
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-
-          {loading ? (
-            <div className="loading-state">
-              <div className="spinner"></div>
-              <p>Loading fresh marketplace listings...</p>
-            </div>
-          ) : error ? (
-            <div className="error-banner">{error}</div>
-          ) : filteredProducts.length === 0 ? (
-            <div className="empty-state-box">
-              <div className="empty-icon">🌾</div>
-              <h4>No Products Found</h4>
-              <p>Try searching for a different crop name or clearing location filters.</p>
-            </div>
-          ) : (
-            <div className="products-grid">
-              {filteredProducts.map((product) => (
-                <div className="farmer-product-card" key={product._id}>
-                  <div className="product-card-thumb">
-                    <img
-                      src={product.mainImage || product.images?.[0]?.url || "https://via.placeholder.com/300"}
-                      alt={product.name}
-                    />
-                    <span className="stock-badge in-stock">
-                      ⭐ {product.rating || "4.8"}
-                    </span>
-                  </div>
-
-                  <div className="product-card-content">
-                    <div className="product-category-tag">{product.type === "fertilizer" ? "🧪 Fertilizer" : "🌱 Produce"}</div>
-                    <h4 className="product-title">{product.name}</h4>
-                    <p className="subtext">
-                      Seller: <strong>{product.sellerName || product.seller?.firstName || "Local Seller"}</strong>
-                    </p>
-                    <p className="subtext">📍 {product.address || "Local Farm"}</p>
-                    {getDistanceLabel(product) && (
-                      <p className="subtext" style={{ color: "#16a34a", fontWeight: 600 }}>📏 {getDistanceLabel(product)}</p>
-                    )}
-
-                    <div style={{ marginTop: "12px" }}>
-                      <span className="product-price-tag">₹{product.price}</span>
-                      <span className="unit-text"> / {product.unit || "kg"}</span>
-                      <span style={{ float: "right", fontSize: "12px", color: "#64748b" }}>Stock: {product.quantity || 0} {product.unit || "kg"}</span>
-                    </div>
-
-                    <div className="product-card-actions" style={{ marginTop: "14px" }}>
-                      <button
-                        className="btn-primary-action"
-                        style={{ width: "100%", padding: "10px" }}
-                        onClick={() => handleAddToCart(product._id)}
-                      >
-                        🛒 Add to Cart
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

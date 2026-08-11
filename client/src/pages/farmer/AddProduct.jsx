@@ -76,7 +76,11 @@ const AddProduct = () => {
                   <option value="vegetables">Vegetables</option>
                   <option value="fruits">Fruits</option>
                   <option value="grains">Grains</option>
-                  <option value="pulses">Pulses</option>
+                  <option value="vegetables">Vegetables</option>
+                  <option value="fruits">Fruits</option>
+                  <option value="grains">Grains</option>
+                  <option value="seeds">Seeds</option>
+                  <option value="equipment">Equipment</option>
                 </>
               )}
             </select>
@@ -84,7 +88,7 @@ const AddProduct = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Quantity (kg)</label>
+              <label>Quantity</label>
               <input
                 type="number"
                 placeholder="Enter quantity"
@@ -94,10 +98,10 @@ const AddProduct = () => {
             </div>
 
             <div className="form-group">
-              <label>Market Price (₹/kg)</label>
+              <label>Price (₹)</label>
               <input
                 type="number"
-                placeholder="Enter market price"
+                placeholder="Enter price"
                 value={marketPrice}
                 onChange={(e) => setMarketPrice(e.target.value)}
               />
@@ -105,10 +109,10 @@ const AddProduct = () => {
           </div>
 
           <div className="form-group">
-            <label>Location</label>
+            <label>Location / Address</label>
             <input
               type="text"
-              placeholder="Enter product location"
+              placeholder="Enter product address"
               value={locationText}
               onChange={(e) => setLocationText(e.target.value)}
             />
@@ -228,11 +232,6 @@ const AddProduct = () => {
                 return;
               }
 
-              if (!locationCoords || !locationCoords.latitude || !locationCoords.longitude) {
-                addNotification("Product location is required. Please use current location.", "error");
-                return;
-              }
-
               setSubmitting(true);
               try {
                 let imagePayload = [];
@@ -264,7 +263,7 @@ const AddProduct = () => {
                   address: locationText,
                   location: {
                     type: "Point",
-                    coordinates: [locationCoords.longitude, locationCoords.latitude],
+                    coordinates: locationCoords ? [locationCoords.longitude, locationCoords.latitude] : [0, 0],
                     address: locationText || "",
                   },
                   composition:

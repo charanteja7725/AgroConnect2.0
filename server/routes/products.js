@@ -36,9 +36,13 @@ router.get("/", async (req, res) => {
       if (maxPrice) query.price.$lte = parseFloat(maxPrice);
     }
 
-    // Text search
+    // Regex search (handles partial matches and does not require text index)
     if (search) {
-      query.$text = { $search: search };
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { category: { $regex: search, $options: "i" } }
+      ];
     }
 
     // Geolocation filter
@@ -58,7 +62,15 @@ router.get("/", async (req, res) => {
               },
             }
           : {}),
-        ...(search ? { $text: { $search: search } } : {}),
+        ...(search
+          ? {
+              $or: [
+                { name: { $regex: search, $options: "i" } },
+                { description: { $regex: search, $options: "i" } },
+                { category: { $regex: search, $options: "i" } }
+              ],
+            }
+          : {}),
       };
 
       const geoPipeline = [
@@ -201,7 +213,7 @@ router.get("/:id", async (req, res) => {
 // @access  Private (Farmer/Fertilizer Seller)
 router.post("/", protect, authorize("farmer", "fertilizer_seller"), async (req, res) => {
   try {
-    const { name, description, type, category, price, quantity, unit, images, address, location } =
+    const { name, description, type, category, price, quantity, unit, images, address, location, composition } =
       req.body;
 
     // Validate required fields
@@ -209,21 +221,29 @@ router.post("/", protect, authorize("farmer", "fertilizer_seller"), async (req, 
       return res.status(400).json({ error: "Please provide all required fields" });
     }
 
+    // Farmer verification gate — only verified farmers can publish active products
+    const seller = await User.findById(req.user._id);
+    const isFarmer = req.user.role === "farmer";
+    const isVerifiedFarmer = !isFarmer || seller.verificationStatus === "verified";
+    // Fertilizer sellers are not subject to the farmer verification workflow
+
+    // Use provided coordinates or default to [0, 0] (product saved as inactive draft)
+    let geoCoords = [0, 0];
+    let locationProvided = false;
     if (
-      !location ||
-      !Array.isArray(location.coordinates) ||
-      location.coordinates.length !== 2 ||
-      !location.coordinates.every((coord) => typeof coord === "number" && Number.isFinite(coord))
+      location &&
+      Array.isArray(location.coordinates) &&
+      location.coordinates.length === 2 &&
+      location.coordinates.every((coord) => typeof coord === "number" && Number.isFinite(coord))
     ) {
-      return res.status(400).json({
-        error: "Product location is required. Please use current location.",
-      });
+      geoCoords = [Number(location.coordinates[0]), Number(location.coordinates[1])];
+      locationProvided = true;
     }
 
     const geoLocation = {
       type: "Point",
-      coordinates: [Number(location.coordinates[0]), Number(location.coordinates[1])],
-      address: location.address || address || "",
+      coordinates: geoCoords,
+      address: (location && location.address) || address || "",
     };
 
     const product = new Product({
@@ -233,13 +253,17 @@ router.post("/", protect, authorize("farmer", "fertilizer_seller"), async (req, 
       category,
       price,
       quantity,
-      unit,
-      images,
-      address: location.address || address || "",
+      unit: unit || "kg",
+      images: images || [],
+      address: (location && location.address) || address || "",
       location: geoLocation,
       seller: req.user._id,
       sellerName: `${req.user.firstName} ${req.user.lastName}`,
-      mainImage: images && images[0]?.url ? images[0].url : "https://via.placeholder.com/300",
+      mainImage: images && images[0]?.url ? images[0].url : null,
+      // Only publish product if farmer is verified and location provided
+      isActive: isVerifiedFarmer && locationProvided,
+      inStock: true,
+      ...(composition && { composition }),
     });
 
     await product.save();
@@ -247,10 +271,18 @@ router.post("/", protect, authorize("farmer", "fertilizer_seller"), async (req, 
     // Update user total products
     await User.findByIdAndUpdate(req.user._id, { $inc: { totalProducts: 1 } });
 
+    let message = "Product created successfully";
+    if (!isVerifiedFarmer) {
+      message = "Product saved as draft. Complete farmer verification to publish it to buyers.";
+    } else if (!locationProvided) {
+      message = "Product saved as draft. Add your GPS location to publish it.";
+    }
+
     res.status(201).json({
       success: true,
       product,
-      message: "Product created successfully",
+      message,
+      isPublished: product.isActive,
     });
   } catch (err) {
     res.status(500).json({ error: "Error creating product: " + err.message });

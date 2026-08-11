@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AppHooks.js";
 import { authAPI } from "../../services/api.js";
-import { FiMail, FiLock, FiShield, FiUser } from "react-icons/fi";
+import { FiMail, FiLock, FiShield, FiUser, FiEye, FiEyeOff } from "react-icons/fi";
 import { FaLeaf, FaUsers, FaArrowRight } from "react-icons/fa";
 import { MdOutlineAgriculture } from "react-icons/md";
 import "./login.css";
@@ -12,6 +12,7 @@ function Login() {
   const { login, setLoading, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
   const handleLogin = async () => {
@@ -115,20 +116,42 @@ function Login() {
                 placeholder="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                 required
               />
             </div>
 
             {/* Password Field */}
-            <div className="custom-input-wrapper">
+            <div className="custom-input-wrapper" style={{ position: "relative" }}>
               <FiLock className="input-icon" />
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                 required
+                style={{ paddingRight: "40px" }}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: "absolute",
+                  right: "12px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#64748b",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0",
+                }}
+              >
+                {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
+              </button>
             </div>
           </div>
 

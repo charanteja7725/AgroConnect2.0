@@ -45,6 +45,7 @@ const DeliveryDashboard = () => {
 
   useEffect(() => {
     fetchDeliveries();
+    loadNearbyOrders(null);
   }, [fetchDeliveries]);
 
   const handleUpdateDeliveryStatus = async (deliveryId, status) => {
@@ -64,10 +65,10 @@ const DeliveryDashboard = () => {
   };
 
   const loadNearbyOrders = async (coords) => {
-    if (!coords?.latitude || !coords?.longitude) return;
-
     try {
-      const response = await deliveryAPI.getNearbyDeliveries(coords.longitude, coords.latitude, 20000);
+      const lat = coords?.latitude || "";
+      const lng = coords?.longitude || "";
+      const response = await deliveryAPI.getNearbyDeliveries(lng, lat, 20000);
       setNearbyDeliveries(response.deliveries || []);
     } catch (err) {
       setError(err.message || "Unable to fetch nearby orders");

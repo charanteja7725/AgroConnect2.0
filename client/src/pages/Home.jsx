@@ -1,12 +1,28 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaMicrophone, FaSearch, FaTruck } from "react-icons/fa";
 import { MdOutlineAgriculture } from "react-icons/md";
 import { FiShoppingCart } from "react-icons/fi";
+import { useAuth } from "../context/AppHooks.js";
 import "./home.css";
+
+const roleHomeMap = {
+  farmer: "/farmer",
+  buyer: "/buyer",
+  fertilizer_seller: "/fertilizer",
+  delivery_partner: "/delivery",
+  admin: "/admin",
+};
 
 function Home() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      navigate(roleHomeMap[user.role] || "/");
+    }
+  }, [user, navigate]);
 
   return (
     <div className="home">

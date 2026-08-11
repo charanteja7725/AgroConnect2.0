@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import "./farmerdashboard.css";
 import { useNavigate } from "react-router-dom";
 import { useAuth, useNotification } from "../../context/AppHooks.js";
-import { productAPI, orderAPI, pricingAPI } from "../../services/api";
+import { productAPI, orderAPI, pricingAPI, userAPI } from "../../services/api";
 
 const FarmerDashboard = () => {
   const navigate = useNavigate();
@@ -25,6 +25,10 @@ const FarmerDashboard = () => {
   const [orders, setOrders] = useState([]);
   const [priceEstimates, setPriceEstimates] = useState({});
   const [loadingAi, setLoadingAi] = useState({});
+  const [verificationStatus, setVerificationStatus] = useState(user?.verificationStatus || "not_submitted");
+  const [verificationLoading, setVerificationLoading] = useState(false);
+  const [verificationNote, setVerificationNote] = useState("");
+  const [verificationMsg, setVerificationMsg] = useState("");
 
   const userId = user?._id;
 
@@ -170,6 +174,7 @@ const FarmerDashboard = () => {
     "my-products": "My Product Listings",
     orders: "Incoming Orders",
     profile: "Farmer Profile",
+    verification: "Account Verification",
   };
 
   const sectionDescription = {
@@ -177,6 +182,7 @@ const FarmerDashboard = () => {
     "my-products": "Review your active crops, update stock quantities, and use AI pricing tools.",
     orders: "Manage direct orders from buyers and update order delivery progress.",
     profile: "View and edit your personal account details, farm address, and contact info.",
+    verification: "Submit your farm credentials to start selling produce on AgroConnect.",
   };
 
   const filteredOrders = orders.filter((o) => {
@@ -424,6 +430,102 @@ const FarmerDashboard = () => {
           </div>
         );
 
+      case "verification":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>Farmer Verification</h3>
+              <p className="subtext">Submit your details for admin review to start selling</p>
+            </div>
+
+            <div className="verification-status-box">
+              <div className={`verification-badge status-${verificationStatus}`}>
+                {verificationStatus === "not_submitted" && "⚪ Not Submitted"}
+                {verificationStatus === "pending" && "🟡 Under Review"}
+                {verificationStatus === "more_information_required" && "🔵 More Info Needed"}
+                {verificationStatus === "verified" && "✅ Verified Farmer"}
+                {verificationStatus === "rejected" && "❌ Application Rejected"}
+                {verificationStatus === "suspended" && "🚫 Account Suspended"}
+              </div>
+              {user?.adminReview?.notes && (
+                <p className="admin-review-note"><strong>Admin Note:</strong> {user.adminReview.notes}</p>
+              )}
+              {user?.adminReview?.rejectionReason && (
+                <p className="admin-review-note error-note"><strong>Rejection Reason:</strong> {user.adminReview.rejectionReason}</p>
+              )}
+              {user?.adminReview?.moreInfoRequest && (
+                <p className="admin-review-note info-note"><strong>Admin Request:</strong> {user.adminReview.moreInfoRequest}</p>
+              )}
+            </div>
+
+            {(verificationStatus === "not_submitted" || verificationStatus === "more_information_required" || verificationStatus === "rejected") && (
+              <div className="verification-form">
+                <h4>Submit Verification Request</h4>
+                <p className="info-text">Provide any relevant information about your farm. An admin will review your application.</p>
+                
+                <div className="form-group">
+                  <label>Additional Notes (optional)</label>
+                  <textarea
+                    placeholder="Tell us about your farm — size, type of produce, years of experience, etc."
+                    value={verificationNote}
+                    onChange={(e) => setVerificationNote(e.target.value)}
+                    rows={4}
+                  />
+                </div>
+
+                {verificationMsg && (
+                  <div className={`verification-feedback ${verificationMsg.type}`}>
+                    {verificationMsg.text}
+                  </div>
+                )}
+
+                <button
+                  className="btn-primary-action"
+                  disabled={verificationLoading}
+                  onClick={async () => {
+                    setVerificationLoading(true);
+                    setVerificationMsg("");
+                    try {
+                      const result = await userAPI.submitVerification({
+                        additionalNotes: verificationNote,
+                      });
+                      setVerificationStatus(result.verificationStatus || "pending");
+                      setVerificationMsg({ type: "success", text: result.message || "Verification submitted successfully!" });
+                      setVerificationNote("");
+                    } catch (err) {
+                      setVerificationMsg({ type: "error", text: err.message || "Failed to submit verification." });
+                    } finally {
+                      setVerificationLoading(false);
+                    }
+                  }}
+                >
+                  {verificationLoading ? "Submitting..." : "Submit Verification Request"}
+                </button>
+              </div>
+            )}
+
+            {verificationStatus === "verified" && (
+              <div className="verification-success-banner">
+                <span>🎉</span>
+                <div>
+                  <h4>You are a Verified Farmer!</h4>
+                  <p>Your products are visible to buyers. You can now add and publish products.</p>
+                </div>
+              </div>
+            )}
+
+            {verificationStatus === "pending" && (
+              <div className="verification-pending-banner">
+                <span>⏳</span>
+                <div>
+                  <h4>Application Under Review</h4>
+                  <p>An admin will review your application shortly. You will be notified once reviewed.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
       default:
         return (
           <>
@@ -482,7 +584,14 @@ const FarmerDashboard = () => {
                   <p>List fresh crops with AI market price guidance and location tag.</p>
                   <button
                     className="btn-tile-action"
-                    onClick={() => navigate("/farmer/add-product")}
+                    onClick={() => {
+                      if (user?.verificationStatus !== "verified") {
+                        setActiveSection("verification");
+                        if (addNotification) addNotification("Complete verification first to publish products", "info");
+                        return;
+                      }
+                      navigate("/farmer/add-product");
+                    }}
                   >
                     Add Product →
                   </button>
@@ -610,7 +719,14 @@ const FarmerDashboard = () => {
           </button>
           <button
             className="navbar-btn-add"
-            onClick={() => navigate("/farmer/add-product")}
+            onClick={() => {
+              if (user?.verificationStatus !== "verified") {
+                setActiveSection("verification");
+                if (addNotification) addNotification("Complete verification first to publish products", "info");
+                return;
+              }
+              navigate("/farmer/add-product");
+            }}
           >
             + Add Product
           </button>
@@ -678,6 +794,21 @@ const FarmerDashboard = () => {
             </div>
 
             <div
+              className={`sidebar-nav-item ${activeSection === "verification" ? "active" : ""}`}
+              onClick={() => setActiveSection("verification")}
+            >
+              <span className="nav-icon">
+                {user?.verificationStatus === "verified" ? "✅" : 
+                 user?.verificationStatus === "pending" ? "⏳" : 
+                 user?.verificationStatus === "rejected" ? "❌" : "📋"}
+              </span>
+              <span className="nav-label">Verification</span>
+              {(!user?.verificationStatus || user?.verificationStatus === "not_submitted") && (
+                <span className="nav-count-badge warning">!</span>
+              )}
+            </div>
+
+            <div
               className={`sidebar-nav-item ${activeSection === "profile" ? "active" : ""}`}
               onClick={() => setActiveSection("profile")}
             >
@@ -701,7 +832,14 @@ const FarmerDashboard = () => {
               <div className="banner-action-side">
                 <button
                   className="banner-primary-btn"
-                  onClick={() => navigate("/farmer/add-product")}
+                  onClick={() => {
+                    if (user?.verificationStatus !== "verified") {
+                      setActiveSection("verification");
+                      if (addNotification) addNotification("Complete verification first to publish products", "info");
+                      return;
+                    }
+                    navigate("/farmer/add-product");
+                  }}
                 >
                   + Add New Produce
                 </button>

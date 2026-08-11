@@ -171,6 +171,9 @@ const productSchema = new mongoose.Schema(
   }
 );
 
+// Index for geospatial queries
+productSchema.index({ location: "2dsphere" });
+
 // Index for filtering and searching
 productSchema.index({ location: "2dsphere" });
 productSchema.index({ seller: 1, category: 1, isActive: 1 });

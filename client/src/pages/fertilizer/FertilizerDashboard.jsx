@@ -72,7 +72,6 @@ const FertilizerDashboard = () => {
 
   return (
     <div className="fertilizer-dashboard-page">
-      {/* Topbar */}
       <div className="fertilizer-topbar">
         <div className="fertilizer-topbar-inner">
           <div className="fertilizer-brand">🌱 AgroConnect</div>
@@ -89,7 +88,6 @@ const FertilizerDashboard = () => {
       </div>
 
       <div className="fertilizer-layout">
-        {/* Sidebar */}
         <div className="fertilizer-sidebar">
           <h3 className="sidebar-title">📋 Fertilizer Seller</h3>
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { productAPI, cartAPI, userAPI } from "../../services/api.js";
 import { useAuth, useNotification } from "../../context/AppContext.jsx";
@@ -15,6 +15,8 @@ const BuyerDashboard = () => {
   const [searchText, setSearchText] = useState("");
   const [locationInfo, setLocationInfo] = useState(null);
   const [locationAddress, setLocationAddress] = useState("");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [productType, setProductType] = useState("all");
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -37,10 +39,13 @@ const BuyerDashboard = () => {
       if (search) {
         query.search = search;
       }
-      if (location?.latitude && location?.longitude) {
+      if (productType && productType !== "all") {
+        query.type = productType;
+      }
+      if (location?.latitude && location?.longitude && locationFilter !== "all") {
         query.latitude = location.latitude;
         query.longitude = location.longitude;
-        query.maxDistance = 20000;
+        query.maxDistance = locationFilter === "within5" ? 5000 : 20000;
       }
       if (filters.category) query.category = filters.category;
       if (filters.minPrice) query.minPrice = filters.minPrice;
@@ -70,7 +75,7 @@ const BuyerDashboard = () => {
 
   useEffect(() => {
     loadProducts(null, searchText);
-  }, []);
+  }, [loadProducts, searchText]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -80,7 +85,7 @@ const BuyerDashboard = () => {
     }, 500);
 
     return () => clearTimeout(handler);
-  }, [searchText, locationInfo]);
+  }, [loadProducts, searchText, locationInfo, productType, locationFilter]);
 
   const filteredProducts = useMemo(() => {
     if (!searchText) return products;
@@ -297,6 +302,9 @@ const BuyerDashboard = () => {
                   <h4>{product.name}</h4>
                   <p className="farmer-line">🌱 {product.sellerName || product.seller?.firstName || "Local Farmer"}</p>
                   <p className="distance-line">📍 {product.address || "Nearby"}</p>
+                  {getDistanceLabel(product) && (
+                    <p className="distance-line">📏 {getDistanceLabel(product)}</p>
+                  )}
 
                   <div className="product-meta">
                     <span className="product-price">₹{product.price}/kg</span>

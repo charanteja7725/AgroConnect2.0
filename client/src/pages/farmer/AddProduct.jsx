@@ -11,6 +11,9 @@ const AddProduct = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addNotification } = useNotification();
+  const [productType, setProductType] = useState(
+    window.location.pathname.includes("/fertilizer") ? "fertilizer" : "produce"
+  );
   const [productName, setProductName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -20,6 +23,9 @@ const AddProduct = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [description, setDescription] = useState("");
+  const [compositionN, setCompositionN] = useState("");
+  const [compositionP, setCompositionP] = useState("");
+  const [compositionK, setCompositionK] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState("not_submitted");
@@ -152,8 +158,17 @@ const AddProduct = () => {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setImageFile(file);
+                setImagePreview(file ? URL.createObjectURL(file) : "");
+              }}
             />
+            {imagePreview && (
+              <div className="image-preview">
+                <img src={imagePreview} alt="Preview" />
+              </div>
+            )}
           </div>
 
           <div className="form-group">
@@ -165,21 +180,77 @@ const AddProduct = () => {
             />
           </div>
 
+          {productType === "fertilizer" && (
+            <div className="fertilizer-details">
+              <h4>Fertilizer Composition</h4>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Nitrogen (N)</label>
+                  <input
+                    type="number"
+                    placeholder="N%"
+                    value={compositionN}
+                    onChange={(e) => setCompositionN(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Phosphorus (P)</label>
+                  <input
+                    type="number"
+                    placeholder="P%"
+                    value={compositionP}
+                    onChange={(e) => setCompositionP(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Potassium (K)</label>
+                  <input
+                    type="number"
+                    placeholder="K%"
+                    value={compositionK}
+                    onChange={(e) => setCompositionK(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <button
             className="submit-btn"
             onClick={async () => {
-              if (!productName || !category || !quantity || !marketPrice || !location) {
+              if (!productName || !category || !quantity || !marketPrice) {
                 addNotification("Please fill in all required fields", "error");
+                return;
+              }
+
+              if (!locationCoords || !locationCoords.latitude || !locationCoords.longitude) {
+                addNotification("Product location is required. Please use current location.", "error");
                 return;
               }
 
               setSubmitting(true);
               try {
-                const imageUrl = imageFile ? URL.createObjectURL(imageFile) : null;
+                let imagePayload = [];
+                if (imageFile) {
+                  const formData = new FormData();
+                  formData.append("image", imageFile);
+                  const uploadResult = await uploadAPI.uploadImage(formData);
+                  imagePayload = uploadResult?.url
+                    ? [
+                        {
+                          url: uploadResult.url,
+                          publicId: uploadResult.publicId,
+                          alt: productName,
+                        },
+                      ]
+                    : [];
+                  
+                }
+
                 await productAPI.createProduct({
                   name: productName,
                   description,
-                  type: "produce",
+                  type: productType,
                   category,
                   price: Number(marketPrice),
                   quantity: Number(quantity),
@@ -202,10 +273,13 @@ const AddProduct = () => {
                 setCategory("");
                 setQuantity("");
                 setMarketPrice("");
-                setLocation("");
+                setLocationText("");
                 setDescription("");
+                setCompositionN("");
+                setCompositionP("");
+                setCompositionK("");
                 setImageFile(null);
-                navigate("/farmer");
+                navigate(productType === "fertilizer" ? "/fertilizer" : "/farmer");
               } catch (error) {
                 addNotification(error.message || "Unable to add product", "error");
               } finally {

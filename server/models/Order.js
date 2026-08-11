@@ -74,6 +74,11 @@ const orderSchema = new mongoose.Schema(
         },
         sellerName: String,
         productName: String,
+        productType: {
+          type: String,
+          enum: ["produce", "fertilizer", "other"],
+          default: "produce",
+        },
         quantity: Number,
         price: Number,
         totalPrice: Number,
@@ -103,6 +108,14 @@ const orderSchema = new mongoose.Schema(
       zipCode: String,
       country: String,
       landmark: String,
+      coordinates: {
+        type: {
+          type: String,
+          enum: ["Point"],
+          default: "Point",
+        },
+        coordinates: [Number],
+      },
     },
 
     // Pricing
@@ -119,7 +132,8 @@ const orderSchema = new mongoose.Schema(
     payment: {
       method: {
         type: String,
-        enum: ["credit_card", "debit_card", "upi", "net_banking", "wallet"],
+        enum: ["credit_card", "debit_card", "upi", "net_banking", "wallet", "cash_on_delivery"],
+        default: "cash_on_delivery",
       },
       transactionId: String,
       status: {
@@ -216,6 +230,8 @@ const paymentSchema = new mongoose.Schema(
     // Stripe specific
     stripePaymentIntentId: String,
     stripeChargeId: String,
+    razorpayOrderId: String,
+    razorpaySignature: String,
 
     // Refund information
     refundStatus: {

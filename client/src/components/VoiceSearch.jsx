@@ -8,9 +8,13 @@ const VoiceSearch = ({ onSearch, placeholder = "Search products..." }) => {
 
   useEffect(() => {
     if (!isListening && transcript.trim()) {
-      setSearchTerm(transcript);
-      onSearch(transcript);
+      const timer = setTimeout(() => {
+        setSearchTerm(transcript);
+        onSearch(transcript);
+      }, 0);
+      return () => clearTimeout(timer);
     }
+    return undefined;
   }, [isListening, transcript, onSearch]);
 
   const handleVoiceSearch = () => {

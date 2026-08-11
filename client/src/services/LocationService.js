@@ -73,7 +73,7 @@ export const LocationService = {
     try {
       const result = await navigator.permissions.query({ name: "geolocation" });
       return result.state;
-    } catch (err) {
+    } catch {
       return "unknown";
     }
   },

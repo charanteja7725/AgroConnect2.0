@@ -1,5 +1,6 @@
 const express = require("express");
 const Notification = require("../models/Notification");
+const Notification = require("../models/Notification");
 const { protect } = require("../middleware/auth");
 
 const router = express.Router();
@@ -38,13 +39,14 @@ router.post("/send", protect, async (req, res) => {
       message: "Notification sent successfully",
     });
   } catch (err) {
-    res.status(500).json({ error: "Error sending notification: " + err.message });
+    console.error("Error creating notification:", err);
   }
-});
+};
 
 // @route   GET /api/notifications
 // @desc    Get user notifications
 // @access  Private
+router.get("/", protect, async (req, res) => {
 router.get("/", protect, async (req, res) => {
   try {
     const notifications = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 });

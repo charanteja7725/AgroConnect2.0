@@ -25,40 +25,63 @@ const adminRoutes = require("./routes/admin");
 // Initialize Express App
 const app = express();
 const server = http.createServer(app);
+
+// Allowed Frontend Origins
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
+// Socket.IO
 const io = socketIO(server, {
   cors: {
     origin: process.env.CLIENT_URL || "http://localhost:5003",
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
-// Middleware
+// Security Middleware
 app.use(helmet());
 
 const clientOrigin = process.env.CLIENT_URL || "http://localhost:5003";
 app.use(
   cors({
-    origin: clientOrigin,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (Postman/mobile apps)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
 
+// Rate Limiter
 const authLimiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
   standardHeaders: "draft-7",
   legacyHeaders: false,
 });
+
 app.use("/api/auth", authLimiter);
 
+// Body Parsers
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json", limit: "50mb" })
 );
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Static files
+// Static Files
 app.use(express.static("public"));
 
 // Make io accessible to routes
@@ -72,17 +95,21 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/delivery", deliveryRoutes);
+app.use("/api/upload", uploadRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/pricing", priceRoutes);
 app.use("/api/admin", adminRoutes);
 
-// Health check endpoint
+// Health Check Endpoint
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    mongodb:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
   });
 });
 
@@ -116,18 +143,21 @@ io.on("connection", (socket) => {
   });
 });
 
-// Error handling middleware
+// Error Handling Middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
+
   res.status(err.status || 500).json({
     error: err.message || "Internal Server Error",
     status: err.status || 500,
   });
 });
 
-// 404 handler
+// 404 Handler
 app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
+  res.status(404).json({
+    error: "Route not found",
+  });
 });
 
 if (require.main === module && process.env.NODE_ENV !== "test") {

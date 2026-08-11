@@ -173,6 +173,7 @@ router.get("/", async (req, res) => {
       pages: Math.ceil(total / pageSize),
       products,
     });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({

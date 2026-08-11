@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AppContext.jsx";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -183,7 +184,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="admin-dashboard-page">
-      {/* Admin Topbar */}
       <div className="admin-topbar">
         <div className="admin-topbar-inner">
           <div className="admin-brand">🌱 AgroConnect</div>
@@ -199,7 +199,6 @@ const AdminDashboard = () => {
       </div>
 
       <div className="admin-layout">
-        {/* Sidebar */}
         <div className="admin-sidebar">
           <h3 className="sidebar-title">⚙️ {t("adminPanelTitle")}</h3>
 
@@ -215,7 +214,6 @@ const AdminDashboard = () => {
           <div className="sidebar-item" onClick={() => { logout(); navigate("/login"); }}>{t("logout")}</div>
         </div>
 
-        {/* Main Content */}
         <div className="admin-main">
           {loading && (
             <div className="loading">{t("loading")}</div>

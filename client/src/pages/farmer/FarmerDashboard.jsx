@@ -101,6 +101,7 @@ const FarmerDashboard = () => {
             )}
           </div>
         );
+
       case "orders":
         return (
           <div className="dashboard-section">
@@ -172,6 +173,7 @@ const FarmerDashboard = () => {
             )}
           </div>
         );
+
       case "profile":
         return (
           <div className="dashboard-section">
@@ -185,6 +187,7 @@ const FarmerDashboard = () => {
             </div>
           </div>
         );
+
       default:
         return (
           <>
@@ -231,7 +234,6 @@ const FarmerDashboard = () => {
                   <p>{t("addProductDescription")}</p>
                   <button onClick={() => navigate("/farmer/add-product")}>{t("addProductButton")}</button>
                 </div>
-
                 <div className="action-card">
                   <h4>{t("buyFertilizers")}</h4>
                   <p>{t("buyFertilizersDesc")}</p>
@@ -335,6 +337,7 @@ const FarmerDashboard = () => {
 
         {/* Main Content */}
         <div className="farmer-main">
+          {error && <div className="error-message">{error}</div>}
           <div className="welcome-card">
             <h2>{sectionTitle[activeSection]}</h2>
             <p>{sectionDescription[activeSection]}</p>

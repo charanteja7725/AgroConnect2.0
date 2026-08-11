@@ -9,7 +9,6 @@ const deliverySchema = new mongoose.Schema(
     deliveryPartner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
     },
     partnerName: String,
     partnerPhone: String,
@@ -17,9 +16,13 @@ const deliverySchema = new mongoose.Schema(
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point",
       },
-      coordinates: [Number],
+      coordinates: {
+        type: [Number],
+      },
+      address: {
+        type: String,
+      },
     },
 
     // Delivery Type
@@ -51,14 +54,19 @@ const deliverySchema = new mongoose.Schema(
     senderName: String,
     senderPhone: String,
     senderLocation: {
-      address: String,
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
       coordinates: {
-        type: {
-          type: String,
-          enum: ["Point"],
-          default: "Point",
-        },
-        coordinates: [Number],
+        type: [Number],
+        required: true,
+        validate: (v) => Array.isArray(v) && v.length === 2,
+      },
+      address: {
+        type: String,
+        default: "",
       },
     },
 
@@ -71,18 +79,19 @@ const deliverySchema = new mongoose.Schema(
     recipientPhone: String,
     recipientEmail: String,
     recipientLocation: {
-      street: String,
-      city: String,
-      state: String,
-      zipCode: String,
-      address: String,
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
       coordinates: {
-        type: {
-          type: String,
-          enum: ["Point"],
-          default: "Point",
-        },
-        coordinates: [Number],
+        type: [Number],
+        required: true,
+        validate: (v) => Array.isArray(v) && v.length === 2,
+      },
+      address: {
+        type: String,
+        default: "",
       },
     },
 
@@ -164,9 +173,12 @@ const deliverySchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    index: { partnerLocation: "2dsphere" },
   }
 );
+
+deliverySchema.index({ partnerLocation: "2dsphere" });
+deliverySchema.index({ recipientLocation: "2dsphere" });
+deliverySchema.index({ senderLocation: "2dsphere" });
 
 // Generate Delivery Number
 deliverySchema.pre("save", async function (next) {

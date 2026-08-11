@@ -1,10 +1,42 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const { Order, Cart } = require("../models/Order");
 const User = require("../models/User");
 const Product = require("../models/Product");
+const Notification = require("../models/Notification");
 const { protect, authorize } = require("../middleware/auth");
+const { sendOrderConfirmation } = require("../services/mailService");
+const { buildGeoPoint } = require("../utils/geoUtils");
 
 const router = express.Router();
+
+// Helper function to create and emit notification
+const sendNotification = async (userId, title, message, type, relatedId, actionUrl, io) => {
+  try {
+    const notification = new Notification({
+      user: userId,
+      title,
+      message,
+      type,
+      relatedId,
+      actionUrl,
+    });
+    await notification.save();
+
+    if (io) {
+      io.to(`user_${userId}`).emit("notification", {
+        id: notification._id,
+        title,
+        message,
+        type,
+        timestamp: new Date(),
+        read: false,
+      });
+    }
+  } catch (err) {
+    console.error("Error sending notification:", err);
+  }
+};
 
 // @route   GET /api/orders
 // @desc    Get orders (user's or all for admin)
@@ -69,7 +101,7 @@ router.get("/:id", protect, async (req, res) => {
 });
 
 // @route   POST /api/orders/create
-// @desc    Create order from cart
+// @desc    Create order from cart without replica set transactions for local development
 // @access  Private (Buyer)
 router.post("/create", protect, authorize("buyer"), async (req, res) => {
   try {
@@ -79,26 +111,53 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
       return res.status(400).json({ error: "Delivery address is required" });
     }
 
-    // Get user's cart
+    const sanitizeAddress = (address) => {
+      if (!address) return address;
+      if (typeof address === "string") {
+        return { street: address };
+      }
+      const sanitized = { ...address };
+      if (address.coordinates) {
+        const coordinates = buildGeoPoint(address.coordinates);
+        if (!coordinates) {
+          return null;
+        }
+        sanitized.coordinates = coordinates;
+      }
+      return sanitized;
+    };
+
+    const sanitizedDeliveryAddress = sanitizeAddress(deliveryAddress);
+    if (!sanitizedDeliveryAddress) {
+      return res.status(400).json({ error: "Invalid delivery address coordinates" });
+    }
+
+    const sanitizedBillingAddress = billingAddress ? sanitizeAddress(billingAddress) : sanitizedDeliveryAddress;
+    if (billingAddress && !sanitizedBillingAddress) {
+      return res.status(400).json({ error: "Invalid billing address coordinates" });
+    }
+
+    const paymentMethodValue = paymentMethod || "cash_on_delivery";
+    const validPaymentMethods = ["credit_card", "debit_card", "upi", "net_banking", "wallet", "cash_on_delivery"];
+    if (!validPaymentMethods.includes(paymentMethodValue)) {
+      return res.status(400).json({ error: "Invalid payment method" });
+    }
+
     const cart = await Cart.findOne({ user: req.user._id }).populate("items.product");
 
     if (!cart || cart.items.length === 0) {
       return res.status(400).json({ error: "Cart is empty" });
     }
 
-    // Prepare order items
+    // Validate inventory before making updates.
     const orderItems = [];
-    for (let item of cart.items) {
+    for (const item of cart.items) {
       const product = await Product.findById(item.product);
-
       if (!product) {
         return res.status(400).json({ error: `Product ${item.product} not found` });
       }
-
       if (product.quantity < item.quantity) {
-        return res.status(400).json({
-          error: `Insufficient quantity for ${product.name}`,
-        });
+        return res.status(400).json({ error: `Insufficient quantity for ${product.name}` });
       }
 
       orderItems.push({
@@ -109,49 +168,83 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
         quantity: item.quantity,
         price: product.price,
         totalPrice: item.totalPrice,
+        productType: product.type || "produce",
       });
+    }
 
-      // Reduce product quantity
-      product.quantity -= item.quantity;
-      product.totalSold += item.quantity;
-      await product.save();
+    for (const item of cart.items) {
+      await Product.findByIdAndUpdate(item.product, {
+        $inc: { quantity: -item.quantity, totalSold: item.quantity },
+      }, { new: true, runValidators: true });
 
-      // Increase seller's earnings
-      await User.findByIdAndUpdate(product.seller, {
+      await User.findByIdAndUpdate(item.product.seller || item.seller, {
         $inc: { totalEarnings: item.totalPrice, totalOrders: 1 },
       });
     }
 
-    // Create order
     const order = new Order({
       buyer: req.user._id,
       items: orderItems,
-      billingAddress: billingAddress || deliveryAddress,
-      deliveryAddress,
+      billingAddress: sanitizedBillingAddress || sanitizedDeliveryAddress,
+      deliveryAddress: sanitizedDeliveryAddress,
       subtotal: cart.totalPrice,
-      shippingCost: 0, // Can be calculated based on distance
-      tax: Math.round(cart.totalPrice * 0.05), // 5% tax
+      shippingCost: 0,
+      tax: Math.round(cart.totalPrice * 0.05),
       totalAmount: Math.round(cart.totalPrice * 1.05),
       payment: {
-        method: paymentMethod || "pending",
+        method: paymentMethodValue,
         status: "pending",
       },
     });
 
     await order.save();
 
-    // Clear cart
-    await Cart.findOneAndUpdate({ user: req.user._id }, { items: [], totalQuantity: 0, totalPrice: 0 });
-
-    // Emit real-time notification
-    const io = req.app.get("io");
-    for (let item of orderItems) {
-      io.to(`user_${item.seller}`).emit("new_order", {
-        orderId: order._id,
-        message: `New order from ${req.user.firstName}`,
-        timestamp: new Date(),
-      });
+    // Send order confirmation email
+    try {
+      await sendOrderConfirmation(order, req.user);
+    } catch (emailError) {
+      console.error('Order confirmation email failed:', emailError);
+      // Don't fail order if email fails
     }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      $inc: { totalOrders: 1 },
+    });
+
+    await Cart.findOneAndUpdate(
+      { user: req.user._id },
+      { items: [], totalQuantity: 0, totalPrice: 0 }
+    );
+
+    const io = req.app.get("io");
+    for (const item of orderItems) {
+      await sendNotification(
+        item.seller,
+        "New Order Received",
+        `New order from ${req.user.firstName} ${req.user.lastName}`,
+        "order",
+        order._id,
+        `/orders/${order._id}`,
+        io
+      );
+      if (io) {
+        io.to(`user_${item.seller}`).emit("new_order", {
+          orderId: order._id,
+          message: `New order from ${req.user.firstName}`,
+          timestamp: new Date(),
+        });
+      }
+    }
+
+    await sendNotification(
+      req.user._id,
+      "Order Placed Successfully",
+      `Your order #${order._id} has been placed`,
+      "order",
+      order._id,
+      `/orders/${order._id}`,
+      io
+    );
 
     res.status(201).json({
       success: true,
@@ -159,6 +252,7 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
       message: "Order created successfully",
     });
   } catch (err) {
+    console.error("Order creation error:", err);
     res.status(500).json({ error: "Error creating order: " + err.message });
   }
 });

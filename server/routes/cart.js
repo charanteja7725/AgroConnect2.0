@@ -43,8 +43,8 @@ router.post("/add", protect, async (req, res) => {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    if (product.quantity < quantity) {
-      return res.status(400).json({ error: "Insufficient product quantity available" });
+    if (product.quantity === 0) {
+      return res.status(400).json({ error: "Product is out of stock" });
     }
 
     let cart = await Cart.findOne({ user: req.user._id });

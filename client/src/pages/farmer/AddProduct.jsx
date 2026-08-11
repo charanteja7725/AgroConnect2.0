@@ -1,18 +1,29 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { productAPI } from "../../services/api.js";
-import { useNotification } from "../../context/AppContext.jsx";
+import { productAPI, uploadAPI } from "../../services/api.js";
+import { useNotification } from "../../context/AppHooks.js";
+import { LocationService } from "../../services/LocationService.js";
 import "./addproduct.css";
 
 const AddProduct = () => {
   const navigate = useNavigate();
   const { addNotification } = useNotification();
+  const [productType, setProductType] = useState(
+    window.location.pathname.includes("/fertilizer") ? "fertilizer" : "produce"
+  );
   const [productName, setProductName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
   const [marketPrice, setMarketPrice] = useState("");
-  const [location, setLocation] = useState("");
+  const [locationText, setLocationText] = useState("");
+  const [locationCoords, setLocationCoords] = useState(null);
+  const [locationHint, setLocationHint] = useState("");
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [imagePreview, setImagePreview] = useState("");
   const [description, setDescription] = useState("");
+  const [compositionN, setCompositionN] = useState("");
+  const [compositionP, setCompositionP] = useState("");
+  const [compositionK, setCompositionK] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -28,6 +39,14 @@ const AddProduct = () => {
 
       <div className="add-product-container">
         <div className="add-product-form-card">
+          <div className="form-group">
+            <label>Product Type</label>
+            <select value={productType} onChange={(e) => setProductType(e.target.value)}>
+              <option value="produce">Produce</option>
+              <option value="fertilizer">Fertilizer</option>
+            </select>
+          </div>
+
           <div className="form-group">
             <label>Product Name</label>
             <input
@@ -45,16 +64,31 @@ const AddProduct = () => {
               onChange={(e) => setCategory(e.target.value)}
             >
               <option value="">Select category</option>
-              <option value="vegetables">Vegetables</option>
-              <option value="fruits">Fruits</option>
-              <option value="grains">Grains</option>
-              <option value="pulses">Pulses</option>
+              {productType === "fertilizer" ? (
+                <>
+                  <option value="npk">NPK Fertilizer</option>
+                  <option value="organic">Organic Fertilizer</option>
+                  <option value="pesticide">Pesticide</option>
+                  <option value="seeds">Seeds</option>
+                </>
+              ) : (
+                <>
+                  <option value="vegetables">Vegetables</option>
+                  <option value="fruits">Fruits</option>
+                  <option value="grains">Grains</option>
+                  <option value="vegetables">Vegetables</option>
+                  <option value="fruits">Fruits</option>
+                  <option value="grains">Grains</option>
+                  <option value="seeds">Seeds</option>
+                  <option value="equipment">Equipment</option>
+                </>
+              )}
             </select>
           </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label>Quantity (kg)</label>
+              <label>Quantity</label>
               <input
                 type="number"
                 placeholder="Enter quantity"
@@ -64,10 +98,10 @@ const AddProduct = () => {
             </div>
 
             <div className="form-group">
-              <label>Market Price (₹/kg)</label>
+              <label>Price (₹)</label>
               <input
                 type="number"
-                placeholder="Enter market price"
+                placeholder="Enter price"
                 value={marketPrice}
                 onChange={(e) => setMarketPrice(e.target.value)}
               />
@@ -75,13 +109,57 @@ const AddProduct = () => {
           </div>
 
           <div className="form-group">
-            <label>Location</label>
+            <label>Location / Address</label>
             <input
               type="text"
-              placeholder="Enter farm location"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Enter product address"
+              value={locationText}
+              onChange={(e) => setLocationText(e.target.value)}
             />
+            <div className="location-actions">
+              <button
+                type="button"
+                className="location-btn"
+                disabled={locationLoading}
+                onClick={async () => {
+                  setLocationLoading(true);
+                  try {
+                    const userLocation = await LocationService.getCurrentLocation();
+                    setLocationCoords(userLocation);
+                    const address = await LocationService.reverseGeocode(
+                      userLocation.latitude,
+                      userLocation.longitude
+                    );
+                    const formattedAddress = address
+                      ? `${address.road || ""} ${address.city || address.town || address.village || ""} ${address.state || ""}`.trim()
+                      : LocationService.formatCoordinates(userLocation.latitude, userLocation.longitude);
+                    setLocationText(formattedAddress);
+                    setLocationHint("Using current GPS location");
+                  } catch (err) {
+                    addNotification(err.message || "Unable to get current location", "error");
+                  } finally {
+                    setLocationLoading(false);
+                  }
+                }}
+              >
+                {locationLoading ? "Locating..." : "📍 Use My Current Location"}
+              </button>
+              <button
+                type="button"
+                className="location-btn"
+                onClick={() => {
+                  setLocationText("");
+                  setLocationCoords(null);
+                  setLocationHint("");
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            {locationHint && <p className="location-hint">{locationHint}</p>}
+            {locationCoords && (
+              <p className="location-hint">Selected location: {locationText || LocationService.formatCoordinates(locationCoords.latitude, locationCoords.longitude)}</p>
+            )}
           </div>
 
           <div className="form-group">
@@ -89,8 +167,17 @@ const AddProduct = () => {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setImageFile(file);
+                setImagePreview(file ? URL.createObjectURL(file) : "");
+              }}
             />
+            {imagePreview && (
+              <div className="image-preview">
+                <img src={imagePreview} alt="Preview" />
+              </div>
+            )}
           </div>
 
           <div className="form-group">
@@ -102,31 +189,91 @@ const AddProduct = () => {
             />
           </div>
 
+          {productType === "fertilizer" && (
+            <div className="fertilizer-details">
+              <h4>Fertilizer Composition</h4>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Nitrogen (N)</label>
+                  <input
+                    type="number"
+                    placeholder="N%"
+                    value={compositionN}
+                    onChange={(e) => setCompositionN(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Phosphorus (P)</label>
+                  <input
+                    type="number"
+                    placeholder="P%"
+                    value={compositionP}
+                    onChange={(e) => setCompositionP(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Potassium (K)</label>
+                  <input
+                    type="number"
+                    placeholder="K%"
+                    value={compositionK}
+                    onChange={(e) => setCompositionK(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <button
             className="submit-btn"
             onClick={async () => {
-              if (!productName || !category || !quantity || !marketPrice || !location) {
+              if (!productName || !category || !quantity || !marketPrice) {
                 addNotification("Please fill in all required fields", "error");
                 return;
               }
 
               setSubmitting(true);
               try {
-                const imageUrl = imageFile ? URL.createObjectURL(imageFile) : null;
+                let imagePayload = [];
+                if (imageFile) {
+                  const formData = new FormData();
+                  formData.append("image", imageFile);
+                  const uploadResult = await uploadAPI.uploadImage(formData);
+                  imagePayload = uploadResult?.url
+                    ? [
+                        {
+                          url: uploadResult.url,
+                          publicId: uploadResult.publicId,
+                          alt: productName,
+                        },
+                      ]
+                    : [];
+                  
+                }
+
                 await productAPI.createProduct({
                   name: productName,
                   description,
-                  type: "produce",
+                  type: productType,
                   category,
                   price: Number(marketPrice),
                   quantity: Number(quantity),
                   unit: "kg",
-                  images: imageUrl ? [{ url: imageUrl, alt: productName }] : [],
-                  address: location,
+                  images: imagePayload,
+                  address: locationText,
                   location: {
                     type: "Point",
-                    coordinates: [0, 0],
+                    coordinates: locationCoords ? [locationCoords.longitude, locationCoords.latitude] : [0, 0],
+                    address: locationText || "",
                   },
+                  composition:
+                    productType === "fertilizer"
+                      ? {
+                          nitrogen: Number(compositionN) || 0,
+                          phosphorus: Number(compositionP) || 0,
+                          potassium: Number(compositionK) || 0,
+                        }
+                      : undefined,
                 });
 
                 addNotification("Product added successfully", "success");
@@ -134,10 +281,13 @@ const AddProduct = () => {
                 setCategory("");
                 setQuantity("");
                 setMarketPrice("");
-                setLocation("");
+                setLocationText("");
                 setDescription("");
+                setCompositionN("");
+                setCompositionP("");
+                setCompositionK("");
                 setImageFile(null);
-                navigate("/farmer");
+                navigate(productType === "fertilizer" ? "/fertilizer" : "/farmer");
               } catch (error) {
                 addNotification(error.message || "Unable to add product", "error");
               } finally {
@@ -146,7 +296,7 @@ const AddProduct = () => {
             }}
             disabled={submitting}
           >
-            {submitting ? "Adding..." : "Add Product"}
+            {submitting ? "Adding..." : productType === "fertilizer" ? "Add Fertilizer" : "Add Product"}
           </button>
         </div>
 

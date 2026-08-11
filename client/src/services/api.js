@@ -1,10 +1,11 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
 
 // Helper function to make API requests
 const apiRequest = async (endpoint, options = {}) => {
   const token = localStorage.getItem("token");
+  const isFormData = options.body instanceof FormData;
   const headers = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...options.headers,
   };
 
@@ -45,6 +46,9 @@ const apiRequest = async (endpoint, options = {}) => {
   } catch (error) {
     if (error.name === "AbortError") {
       throw new Error("Request timed out. Please try again.");
+    }
+    if (error.name === "TypeError" && error.message.includes("Failed to fetch")) {
+      throw new Error("Backend server is not running. Please start the server.");
     }
     console.error("API Error:", error);
     throw error;
@@ -92,6 +96,8 @@ export const userAPI = {
       body: JSON.stringify(userData),
     }),
 
+  getUsersByRole: (role) => apiRequest(`/users/role/${role}`),
+
   getNearby: (longitude, latitude, maxDistance = 5000, role = "farmer") =>
     apiRequest(`/users/search/nearby?longitude=${longitude}&latitude=${latitude}&maxDistance=${maxDistance}&role=${role}`),
 
@@ -100,7 +106,30 @@ export const userAPI = {
       method: "POST",
       body: JSON.stringify({ rating, comment }),
     }),
+
+  // Farmer Verification
+  submitVerification: (data) =>
+    apiRequest("/users/verify/submit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getPendingVerifications: (status = "pending") =>
+    apiRequest(`/users/verify/pending?status=${status}`),
+
+  reviewVerification: (farmerId, action, notes, rejectionReason, moreInfoRequest) =>
+    apiRequest(`/users/verify/${farmerId}`, {
+      method: "PUT",
+      body: JSON.stringify({ action, notes, rejectionReason, moreInfoRequest }),
+    }),
+
+  suspendUser: (userId, action) =>
+    apiRequest(`/users/${userId}/suspend`, {
+      method: "PUT",
+      body: JSON.stringify({ action }),
+    }),
 };
+
 
 // Product APIs
 export const productAPI = {
@@ -198,10 +227,10 @@ export const paymentAPI = {
       body: JSON.stringify({ orderId, amount }),
     }),
 
-  confirmPayment: (paymentId, orderId) =>
+  confirmPayment: (paymentId, orderId, paymentData) =>
     apiRequest("/payments/confirm", {
       method: "POST",
-      body: JSON.stringify({ paymentId, orderId }),
+      body: JSON.stringify({ paymentId, orderId, ...paymentData }),
     }),
 
   getPayment: (orderId) => apiRequest(`/payments/${orderId}`),
@@ -219,6 +248,11 @@ export const deliveryAPI = {
       body: JSON.stringify({ status, location, note }),
     }),
 
+  acceptDelivery: (id) =>
+    apiRequest(`/delivery/${id}/accept`, {
+      method: "PUT",
+    }),
+
   getNearbyDeliveries: (longitude, latitude, maxDistance) =>
     apiRequest(`/delivery/nearby?longitude=${longitude}&latitude=${latitude}&maxDistance=${maxDistance}`),
 };
@@ -234,6 +268,15 @@ export const pricingAPI = {
   getTrends: (category) => apiRequest(`/pricing/trends/${category}`),
 
   getMarketAnalysis: () => apiRequest("/pricing/market-analysis"),
+};
+
+// Upload APIs
+export const uploadAPI = {
+  uploadImage: (formData) =>
+    apiRequest("/upload/image", {
+      method: "POST",
+      body: formData,
+    }),
 };
 
 // Notification APIs

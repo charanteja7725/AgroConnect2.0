@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const { validationResult, body } = require("express-validator");
 const User = require("../models/User");
 const { protect } = require("../middleware/auth");
+const { sendWelcomeEmail, sendPasswordResetEmail } = require("../services/mailService");
 
 const router = express.Router();
 
@@ -64,6 +65,14 @@ router.post(
       });
 
       await user.save();
+
+      // Send welcome email
+      try {
+        await sendWelcomeEmail(user);
+      } catch (emailError) {
+        console.error('Welcome email failed:', emailError);
+        // Don't fail registration if email fails
+      }
 
       // Generate token
       const token = generateToken(user._id);
@@ -170,12 +179,16 @@ router.post(
 
       const user = await User.findOne({ email });
 
+      // Always return generic response to prevent email enumeration
       if (!user) {
-        return res.status(404).json({ error: "User not found" });
+        return res.status(200).json({
+          success: true,
+          message: "If an account exists with this email, you will receive a password reset link shortly"
+        });
       }
 
-      // Generate reset token
-      const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      // Generate reset token with separate secret for security
+      const resetToken = jwt.sign({ id: user._id }, process.env.JWT_RESET_SECRET || process.env.JWT_SECRET, {
         expiresIn: "1h",
       });
 
@@ -183,10 +196,16 @@ router.post(
       user.resetPasswordExpire = Date.now() + 1 * 60 * 60 * 1000; // 1 hour
       await user.save();
 
-      // In production, send email with reset link
-      res.json({
+      const resetUrl = `${process.env.CLIENT_URL || "http://localhost:5173"}/reset-password/${resetToken}`;
+      try {
+        await sendPasswordResetEmail(user.email, resetUrl);
+      } catch (emailError) {
+        console.error("Password reset email failed to send:", emailError);
+      }
+
+      res.status(200).json({
         success: true,
-        message: "Password reset email sent",
+        message: "If an account exists with this email, you will receive a password reset link shortly"
       });
     } catch (err) {
       res.status(500).json({ error: "Error processing password reset: " + err.message });
@@ -202,8 +221,8 @@ router.post("/reset-password/:resetToken", async (req, res) => {
     const { resetToken } = req.params;
     const { password } = req.body;
 
-    // Verify token
-    const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+    // Verify token with reset-specific secret
+    const decoded = jwt.verify(resetToken, process.env.JWT_RESET_SECRET || process.env.JWT_SECRET);
 
     const user = await User.findById(decoded.id);
 
@@ -217,7 +236,7 @@ router.post("/reset-password/:resetToken", async (req, res) => {
     user.resetPasswordExpire = undefined;
     await user.save();
 
-    // Generate new token
+    // Generate new login token
     const token = generateToken(user._id);
 
     res.json({

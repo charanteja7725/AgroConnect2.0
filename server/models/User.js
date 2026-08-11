@@ -135,6 +135,38 @@ const userSchema = new mongoose.Schema(
     resetPasswordToken: String,
     resetPasswordExpire: Date,
 
+    // Farmer Verification System
+    verificationStatus: {
+      type: String,
+      enum: [
+        "not_submitted",
+        "pending",
+        "more_information_required",
+        "verified",
+        "rejected",
+        "suspended",
+      ],
+      default: "not_submitted",
+    },
+    verificationDocuments: {
+      governmentId: { url: String, publicId: String, uploadedAt: Date },
+      farmerId: { url: String, publicId: String, uploadedAt: Date },
+      farmPhoto: { url: String, publicId: String, uploadedAt: Date },
+      gpsCoordinates: {
+        latitude: Number,
+        longitude: Number,
+      },
+      submittedAt: Date,
+      additionalNotes: String,
+    },
+    adminReview: {
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      reviewedAt: Date,
+      notes: String,
+      rejectionReason: String,
+      moreInfoRequest: String,
+    },
+
     // Preferences
     language: {
       type: String,
@@ -152,6 +184,9 @@ const userSchema = new mongoose.Schema(
     index: { location: "2dsphere" }, // For geospatial queries
   }
 );
+
+// Ensure explicit geospatial index creation for user locations
+userSchema.index({ location: "2dsphere" });
 
 // Hash password before saving
 userSchema.pre("save", async function (next) {

@@ -1,8 +1,11 @@
-.fertilizer-dashboard-page {
-  min-height: 100vh;
-  background: #f3efe8;
-  font-family: "Inter", sans-serif;
+@import "../farmer/farmerdashboard.css";
+
+/* Additional Fertilizer-specific accents */
+.portal-badge {
+  background: rgba(16, 185, 129, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
+
 
 .fertilizer-topbar {
   background: #2ecc71;

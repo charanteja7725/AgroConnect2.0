@@ -1,5 +1,5 @@
-﻿import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { useNotification } from "./context/AppContext.jsx";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { useNotification } from "./context/AppHooks.js";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
 import Home from "./pages/Home";
@@ -8,11 +8,14 @@ import Register from "./pages/auth/Register";
 import RoleSelection from "./pages/auth/RoleSelection";
 import FarmerDashboard from "./pages/farmer/FarmerDashboard";
 import AddProduct from "./pages/farmer/AddProduct";
+import EditProduct from "./pages/farmer/EditProduct";
 import BuyerDashboard from "./pages/buyer/BuyerDashboard";
+import FertilizerStore from "./pages/buyer/FertilizerStore";
 import Cart from "./pages/buyer/Cart";
 import FertilizerDashboard from "./pages/fertilizer/FertilizerDashboard";
 import DeliveryDashboard from "./pages/delivery/DeliveryDashboard";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import NotFound from "./pages/NotFound.jsx";
 
 function NotificationList() {
   const { notifications } = useNotification();
@@ -76,6 +79,22 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/farmer/edit-product/:id"
+          element={
+            <ProtectedRoute allowedRoles={["farmer", "fertilizer_seller"]}>
+              <EditProduct />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/fertilizer/add-product"
+          element={
+            <ProtectedRoute allowedRoles={["farmer", "fertilizer_seller"]}>
+              <AddProduct />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Fertilizer Routes */}
         <Route
@@ -97,6 +116,16 @@ function App() {
           }
         />
 
+        {/* Fertilizer Store */}
+        <Route
+          path="/fertilizer-store"
+          element={
+            <ProtectedRoute allowedRoles={["buyer", "farmer"]}>
+              <FertilizerStore />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Admin Routes */}
         <Route
           path="/admin"
@@ -106,6 +135,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

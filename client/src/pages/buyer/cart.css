@@ -43,11 +43,34 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
-  border-radius: 12px;
-  background: #f9fafb;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f0fdf4, #ffffff);
+  border: 2px solid #10b981;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.1), 0 1px 4px rgba(0,0,0,0.04);
   margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s ease;
 }
+
+.cart-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #10b981, #16a34a);
+  border-radius: 14px 0 0 14px;
+}
+
+.cart-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.18), 0 2px 8px rgba(0,0,0,0.05);
+  border-color: #16a34a;
+}
+
 
 .cart-item-left {
   display: flex;

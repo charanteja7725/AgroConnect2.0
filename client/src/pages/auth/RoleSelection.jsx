@@ -6,18 +6,28 @@ const RoleSelection = () => {
 
   return (
     <div className="ag-role-page">
-      
+
       {/* Top Green Bar */}
       <div className="ag-role-topbar">
         <div className="ag-role-brand">🌱 AgroConnect</div>
+        <span
+          className="ag-role-topbar-login"
+          onClick={() => navigate("/login")}
+        >
+          Already have an account? Login →
+        </span>
       </div>
 
       {/* Main Content */}
       <div className="ag-role-content">
-        <h2 className="ag-role-title">Choose Your Role</h2>
-        <p className="ag-role-subtitle">
-          Select how you’d like to use AgroConnect
-        </p>
+
+        {/* Hero Title */}
+        <div className="ag-role-hero">
+          <h2 className="ag-role-title">Choose Your Role</h2>
+          <p className="ag-role-subtitle">
+            Select how you'd like to use AgroConnect
+          </p>
+        </div>
 
         <div className="ag-role-grid">
 
@@ -83,14 +93,15 @@ const RoleSelection = () => {
             <p>
               Manage the platform, users, and monitor marketplace analytics
             </p>
-            <span className="ag-role-btn admin-link">Get Started →</span>
+            <span className="ag-role-btn admin-link">Login →</span>
           </div>
 
         </div>
 
         {/* Login Link */}
         <p className="ag-role-login-text">
-          Already have an account? <span onClick={() => navigate("/login")}>Login here</span>
+          Already have an account?{" "}
+          <span onClick={() => navigate("/login")}>Login here</span>
         </p>
       </div>
 

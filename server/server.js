@@ -20,51 +20,83 @@ const paymentRoutes = require("./routes/payments");
 const deliveryRoutes = require("./routes/delivery");
 const notificationRoutes = require("./routes/notifications");
 const priceRoutes = require("./routes/aiPricing");
+const uploadRoutes = require("./routes/upload");
 
 // Initialize Express App
 const app = express();
 const server = http.createServer(app);
+
+// Allowed Frontend Origins
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
+// Socket.IO
 const io = socketIO(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
-// Middleware
+// Security Middleware
 app.use(helmet());
 
-const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
+// CORS Middleware
 app.use(
   cors({
-    origin: clientOrigin,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (Postman/mobile apps)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
 
+// Rate Limiter
 const authLimiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
   standardHeaders: "draft-7",
   legacyHeaders: false,
 });
+
 app.use("/api/auth", authLimiter);
 
+// Body Parsers
 app.use(
   "/api/payments/webhook",
   express.raw({ type: "application/json", limit: "50mb" })
 );
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Static files
+// Static Files
 app.use(express.static("public"));
 
 // MongoDB Connection
-mongoose
-  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect")
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Error:", err));
+if (process.env.NODE_ENV !== "test") {
+  mongoose
+    .connect(
+      process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect"
+    )
+    .then(() => {
+      console.log("✅ MongoDB Connected");
+    })
+    .catch((err) => {
+      console.error("❌ MongoDB Error:", err);
+    });
+}
 
 // Make io accessible to routes
 app.set("io", io);
@@ -77,16 +109,20 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/delivery", deliveryRoutes);
+app.use("/api/upload", uploadRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/pricing", priceRoutes);
 
-// Health check endpoint
+// Health Check Endpoint
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    mongodb: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    mongodb:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
   });
 });
 
@@ -120,30 +156,80 @@ io.on("connection", (socket) => {
   });
 });
 
-// Error handling middleware
+// Error Handling Middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
+
   res.status(err.status || 500).json({
     error: err.message || "Internal Server Error",
     status: err.status || 500,
   });
 });
 
-// 404 handler
+// 404 Handler
 app.use((req, res) => {
-  res.status(404).json({ error: "Route not found" });
+  res.status(404).json({
+    error: "Route not found",
+  });
 });
 
 // Start Server
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`
+const PORT = process.env.PORT || 5001;
+
+// Startup validation
+function validateStartupConfig() {
+  const errors = [];
+
+  // Check JWT secrets
+  if (!process.env.JWT_SECRET) {
+    errors.push("❌ JWT_SECRET is not configured");
+  } else if (process.env.JWT_SECRET.length < 64) {
+    errors.push(`❌ JWT_SECRET is too short (${process.env.JWT_SECRET.length} chars, need 64+ chars)`);
+  }
+
+  if (!process.env.JWT_RESET_SECRET && process.env.NODE_ENV === "production") {
+    errors.push("❌ JWT_RESET_SECRET is not configured (required for production)");
+  }
+
+  // Check Stripe configuration
+  if (!process.env.STRIPE_SECRET_KEY) {
+    console.warn("⚠️  WARNING: STRIPE_SECRET_KEY is not configured - Stripe payments will not work");
+  }
+
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn("⚠️  WARNING: STRIPE_WEBHOOK_SECRET is not configured - Stripe webhooks will not work");
+  }
+
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    console.warn("⚠️  WARNING: Razorpay is not configured - Razorpay payments will not work");
+  }
+
+  // Check MongoDB
+  if (!process.env.MONGODB_URI && process.env.NODE_ENV !== "test") {
+    errors.push("❌ MONGODB_URI is not configured");
+  }
+
+  return errors;
+}
+
+const startupErrors = validateStartupConfig();
+if (startupErrors.length > 0) {
+  console.error("\n🚨 STARTUP CONFIGURATION ERRORS:");
+  startupErrors.forEach(err => console.error(err));
+  console.error("\nPlease fix these issues and restart the server.\n");
+  process.exit(1);
+}
+
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`
 ╔════════════════════════════════════════╗
 ║   🌱 AgroConnect Server Running 🌱    ║
-║   Port: ${PORT}                             ║
-║   Environment: ${process.env.NODE_ENV || "development"}           ║
-╚════════════════════════════════════════╝
-  `);
-});
+║   Port: ${PORT}                       
+║   Environment: ${process.env.NODE_ENV || "development"}    
+╚════════════════════════════════════════╗
+    `);
+  });
+}
 
 module.exports = { app, server, io };

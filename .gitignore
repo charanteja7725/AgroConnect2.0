@@ -30,3 +30,4 @@ dist/
 # temporary files
 *.tmp
 *.temp
+.env

@@ -1,6 +1,7 @@
 const express = require("express");
 const Delivery = require("../models/Delivery");
 const { protect, authorize } = require("../middleware/auth");
+const { sendDeliveryUpdate } = require("../services/mailService");
 
 const router = express.Router();
 
@@ -39,13 +40,17 @@ router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) =
   try {
     const { longitude, latitude, maxDistance = 50000 } = req.query;
 
-    if (!longitude || !latitude) {
-      return res.status(400).json({ error: "Location coordinates are required" });
-    }
-
-    const deliveries = await Delivery.find({
+    const query = {
+      $or: [
+        { deliveryPartner: req.user._id },
+        { deliveryPartner: { $exists: false } },
+        { deliveryPartner: null },
+      ],
       status: { $in: ["assigned", "accepted", "picked_up"] },
-      "recipientLocation.coordinates": {
+    };
+
+    if (longitude && latitude) {
+      query.recipientLocation = {
         $near: {
           $geometry: {
             type: "Point",
@@ -53,8 +58,10 @@ router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) =
           },
           $maxDistance: parseInt(maxDistance),
         },
-      },
-    }).limit(10);
+      };
+    }
+
+    const deliveries = await Delivery.find(query).limit(15);
 
     res.json({
       success: true,
@@ -161,6 +168,43 @@ router.put("/:id/assign", protect, authorize("admin"), async (req, res) => {
   }
 });
 
+// @route   PUT /api/delivery/:id/accept
+// @desc    Accept an available delivery order
+// @access  Private (Delivery Partner)
+router.put("/:id/accept", protect, authorize("delivery_partner"), async (req, res) => {
+  try {
+    const delivery = await Delivery.findById(req.params.id);
+
+    if (!delivery) {
+      return res.status(404).json({ error: "Delivery not found" });
+    }
+
+    if (delivery.deliveryPartner && delivery.deliveryPartner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: "This delivery has already been claimed." });
+    }
+
+    delivery.deliveryPartner = req.user._id;
+    delivery.partnerName = `${req.user.firstName} ${req.user.lastName}`;
+    delivery.partnerPhone = req.user.phone || "";
+    delivery.status = delivery.status === "assigned" ? "accepted" : delivery.status;
+    delivery.statusHistory.push({
+      status: "accepted",
+      timestamp: new Date(),
+      note: "Delivery accepted by partner",
+    });
+
+    await delivery.save();
+
+    res.json({
+      success: true,
+      delivery,
+      message: "Delivery accepted successfully",
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error accepting delivery: " + err.message });
+  }
+});
+
 // @route   PUT /api/delivery/:id/status
 // @desc    Update delivery status
 // @access  Private (Delivery Partner)
@@ -207,6 +251,17 @@ router.put("/:id/status", protect, authorize("delivery_partner"), async (req, re
     }
 
     await delivery.save();
+
+    // Send delivery update email to recipient
+    try {
+      const recipient = await require("../models/User").findById(delivery.recipient);
+      if (recipient) {
+        await sendDeliveryUpdate(delivery, recipient);
+      }
+    } catch (emailError) {
+      console.error('Delivery update email failed:', emailError);
+      // Don't fail update if email fails
+    }
 
     // Emit real-time location update
     const io = req.app.get("io");

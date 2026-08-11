@@ -1,219 +1,603 @@
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AppContext.jsx";
+import { useAuth, useNotification } from "../../context/AppHooks.js";
+import { deliveryAPI } from "../../services/api.js";
+import { LocationService } from "../../services/LocationService.js";
 import "./deliverydashboard.css";
 
 const DeliveryDashboard = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+  const { addNotification } = useNotification();
+  const [activeSection, setActiveSection] = useState("dashboard");
+  const [deliveries, setDeliveries] = useState([]);
+  const [nearbyDeliveries, setNearbyDeliveries] = useState([]);
+  const [locationCoords, setLocationCoords] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [stats, setStats] = useState({
+    todayDeliveries: 0,
+    earningsToday: 0,
+    rating: user?.rating || 4.9,
+    completionRate: 98,
+  });
 
-  const activeDeliveries = [
-    {
-      id: "DEL001",
-      type: "Product",
-      from: "Ramesh Kumar (Farmer)",
-      to: "Priya Singh (Buyer)",
-      location: "Sector 5, Noida",
-      status: "In Transit",
-      distance: "3.2 km away",
-      time: "8 mins",
-    },
-    {
-      id: "DEL002",
-      type: "Fertilizer",
-      from: "Agro Supplies Co",
-      to: "Suresh Patel (Farmer)",
-      location: "Sector 7, Noida",
-      status: "Picked Up",
-      distance: "1.5 km away",
-      time: "5 mins",
-    },
-  ];
+  const fetchDeliveries = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await deliveryAPI.getDeliveries();
+      const loadedDeliveries = response.deliveries || [];
+      setDeliveries(loadedDeliveries);
+      const earnings = loadedDeliveries.reduce((sum, delivery) => sum + (delivery.totalEarnings || 0), 0);
 
-  const completedToday = [
-    { id: "DEL003", type: "Product", from: "Anil Sharma", amount: "₹450", completedAt: "02:30 PM" },
-    { id: "DEL004", type: "Fertilizer", from: "Soil Care Ltd", amount: "₹2,100", completedAt: "11:45 AM" },
-    { id: "DEL005", type: "Product", from: "Vijay Kumar", amount: "₹680", completedAt: "09:15 AM" },
-  ];
+      setStats((prev) => ({
+        ...prev,
+        todayDeliveries: loadedDeliveries.filter((delivery) => delivery.status !== "delivered").length,
+        earningsToday: earnings,
+      }));
+    } catch (err) {
+      setError(err.message || "Unable to load deliveries");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const stats = [
-    { label: "Today's Deliveries", value: "8", icon: "📦" },
-    { label: "Earnings Today", value: "₹1,850", icon: "💰" },
-    { label: "Rating", value: "4.9/5", icon: "⭐" },
-    { label: "Completion Rate", value: "98%", icon: "✅" },
-  ];
+  useEffect(() => {
+    fetchDeliveries();
+    loadNearbyOrders(null);
+  }, [fetchDeliveries]);
+
+  const handleUpdateDeliveryStatus = async (deliveryId, status) => {
+    setLoading(true);
+    try {
+      await deliveryAPI.updateDeliveryStatus(deliveryId, status, null, `Marked ${status}`);
+      if (addNotification) addNotification(`Delivery marked as ${status}`, "success");
+      await fetchDeliveries();
+      if (activeSection === "available-orders" && locationCoords) {
+        await loadNearbyOrders(locationCoords);
+      }
+    } catch (err) {
+      setError(err.message || "Unable to update delivery status");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadNearbyOrders = async (coords) => {
+    try {
+      const lat = coords?.latitude || "";
+      const lng = coords?.longitude || "";
+      const response = await deliveryAPI.getNearbyDeliveries(lng, lat, 20000);
+      setNearbyDeliveries(response.deliveries || []);
+    } catch (err) {
+      setError(err.message || "Unable to fetch nearby orders");
+    }
+  };
+
+  const handleUseCurrentLocation = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const coords = await LocationService.getCurrentLocation();
+      setLocationCoords(coords);
+      await loadNearbyOrders(coords);
+      setActiveSection("available-orders");
+      if (addNotification) addNotification("Location updated successfully", "success");
+    } catch (err) {
+      setError(err.message || "Unable to get current GPS location");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAcceptDelivery = async (deliveryId) => {
+    setLoading(true);
+    setError("");
+    try {
+      await deliveryAPI.acceptDelivery(deliveryId);
+      if (addNotification) addNotification("Delivery order accepted!", "success");
+      await fetchDeliveries();
+      await loadNearbyOrders(locationCoords);
+    } catch (err) {
+      setError(err.message || "Unable to accept delivery");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const activeDeliveries = deliveries.filter((delivery) => !["delivered", "cancelled", "failed"].includes(delivery.status));
+  const completedToday = deliveries.filter((delivery) => delivery.status === "delivered");
+
+  const sectionTitle = {
+    dashboard: `Welcome back, ${user?.firstName || "Delivery Partner"} 🚚`,
+    "active-deliveries": "Active Deliveries in Progress",
+    "available-orders": "Available Delivery Jobs",
+    completed: "Completed Delivery History",
+    profile: "Delivery Partner Profile",
+  };
+
+  const sectionDescription = {
+    dashboard: "Manage pick-ups, track live routes, and complete deliveries to earn payout.",
+    "active-deliveries": "Update pick-up, transit, and drop-off statuses for claimed packages.",
+    "available-orders": "Discover nearby delivery requests available to accept.",
+    completed: "Review your completed delivery tasks.",
+    profile: "View verified delivery partner account information.",
+  };
+
+  const renderSectionContent = () => {
+    switch (activeSection) {
+      case "active-deliveries":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <div>
+                <h3>Active Deliveries ({activeDeliveries.length})</h3>
+                <p className="subtext">Update status for orders currently assigned to you</p>
+              </div>
+              <button className="btn-primary-action" onClick={fetchDeliveries}>🔄 Refresh</button>
+            </div>
+
+            {loading ? (
+              <div className="loading-state">
+                <div className="spinner"></div>
+                <p>Loading active deliveries...</p>
+              </div>
+            ) : activeDeliveries.length === 0 ? (
+              <div className="empty-state-box">
+                <div className="empty-icon">🚚</div>
+                <h4>No Active Deliveries</h4>
+                <p>You have no active orders in progress right now. Click "Available Orders" to claim jobs.</p>
+                <button className="btn-primary-action" onClick={handleUseCurrentLocation}>
+                  📍 Find Nearby Orders
+                </button>
+              </div>
+            ) : (
+              <div className="orders-list">
+                {activeDeliveries.map((delivery) => (
+                  <div className="farmer-order-card" key={delivery._id}>
+                    <div className="order-card-header">
+                      <div>
+                        <span className="order-id">Job #{delivery.deliveryNumber || delivery._id?.substring(0, 8)}</span>
+                        <span className="order-date">
+                          {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : "Today"}
+                        </span>
+                      </div>
+                      <span className={`status-pill status-${delivery.status}`}>{delivery.status}</span>
+                    </div>
+
+                    <div className="order-card-body">
+                      <div className="order-info-column">
+                        <p className="info-item">
+                          <strong>Pick Up From:</strong> {delivery.senderName || delivery.sender?.firstName || "Seller"}
+                        </p>
+                        <p className="info-item">
+                          <strong>Deliver To:</strong> {delivery.recipientName || delivery.recipient?.firstName || "Buyer"}
+                        </p>
+                        <p className="info-item">
+                          <strong>Delivery Address:</strong> {delivery.recipientLocation?.address || delivery.recipientLocation?.city || "Standard Address"}
+                        </p>
+                      </div>
+
+                      <div className="order-items-column">
+                        <p className="info-item">
+                          <strong>Earnings Payout:</strong> <span className="highlight-price">₹{delivery.totalEarnings || 150}</span>
+                        </p>
+                        <p className="info-item">
+                          <strong>Distance:</strong> {delivery.totalDistance ? `${delivery.totalDistance} km` : "Standard Route"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="order-card-actions">
+                      <button
+                        className="btn-confirm-order"
+                        onClick={() => handleUpdateDeliveryStatus(delivery._id, "picked_up")}
+                      >
+                        📦 Pick Up
+                      </button>
+                      <button
+                        className="btn-confirm-order"
+                        style={{ background: "#2563eb" }}
+                        onClick={() => handleUpdateDeliveryStatus(delivery._id, "in_transit")}
+                      >
+                        🚚 In Transit
+                      </button>
+                      <button
+                        className="btn-confirm-order"
+                        style={{ background: "#059669" }}
+                        onClick={() => handleUpdateDeliveryStatus(delivery._id, "delivered")}
+                      >
+                        ✅ Mark Delivered
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+
+      case "available-orders":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <div>
+                <h3>Available Orders Near You</h3>
+                {locationCoords ? (
+                  <p className="subtext">Orders near GPS {locationCoords.latitude.toFixed(3)}, {locationCoords.longitude.toFixed(3)}</p>
+                ) : (
+                  <p className="subtext">Use your GPS location to find delivery requests nearby</p>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button className="btn-primary-action" onClick={handleUseCurrentLocation}>📍 GPS Location</button>
+                <button className="btn-table-edit" onClick={() => loadNearbyOrders(locationCoords)}>🔄 Refresh</button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="loading-state">
+                <div className="spinner"></div>
+                <p>Searching for nearby orders...</p>
+              </div>
+            ) : nearbyDeliveries.length === 0 ? (
+              <div className="empty-state-box">
+                <div className="empty-icon">📍</div>
+                <h4>No Nearby Delivery Orders Found</h4>
+                <p>Click "GPS Location" to update location coordinates.</p>
+              </div>
+            ) : (
+              <div className="orders-list">
+                {nearbyDeliveries.map((delivery) => (
+                  <div className="farmer-order-card" key={delivery._id}>
+                    <div className="order-card-header">
+                      <div>
+                        <span className="order-id">Order #{delivery.deliveryNumber || delivery._id?.substring(0, 8)}</span>
+                        <span className="order-date">Available</span>
+                      </div>
+                      <span className="status-pill status-pending">Unclaimed</span>
+                    </div>
+
+                    <div className="order-card-body">
+                      <div className="order-info-column">
+                        <p className="info-item">
+                          <strong>Pick Up:</strong> {delivery.senderName || delivery.sender?.firstName || "Seller"}
+                        </p>
+                        <p className="info-item">
+                          <strong>Deliver To:</strong> {delivery.recipientName || delivery.recipient?.firstName || "Buyer"}
+                        </p>
+                      </div>
+
+                      <div className="order-items-column">
+                        <p className="info-item">
+                          <strong>Address:</strong> {delivery.recipientLocation?.address || "Nearby Address"}
+                        </p>
+                        <p className="info-item">
+                          <strong>Payout Fee:</strong> <span className="highlight-price">₹{delivery.totalEarnings || 150}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="order-card-actions">
+                      <button
+                        className="btn-primary-action"
+                        style={{ width: "100%" }}
+                        disabled={Boolean(delivery.deliveryPartner)}
+                        onClick={() => handleAcceptDelivery(delivery._id)}
+                      >
+                        {delivery.deliveryPartner ? "Already Claimed" : "✅ Accept Delivery Job"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+
+      case "completed":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>Completed Deliveries ({completedToday.length})</h3>
+              <p className="subtext">Successfully fulfilled orders</p>
+            </div>
+
+            {completedToday.length === 0 ? (
+              <div className="empty-state-box">
+                <div className="empty-icon">✅</div>
+                <h4>No Completed Deliveries Yet</h4>
+                <p>Completed jobs will appear here.</p>
+              </div>
+            ) : (
+              <div className="table-responsive-container">
+                <table className="custom-dashboard-table">
+                  <thead>
+                    <tr>
+                      <th>Delivery ID</th>
+                      <th>Sender</th>
+                      <th>Recipient</th>
+                      <th>Earnings</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completedToday.map((delivery) => (
+                      <tr key={delivery._id}>
+                        <td>#{delivery.deliveryNumber || delivery._id?.substring(0, 8)}</td>
+                        <td>{delivery.senderName || "Seller"}</td>
+                        <td>{delivery.recipientName || "Buyer"}</td>
+                        <td className="highlight-price">₹{delivery.totalEarnings || 150}</td>
+                        <td><span className="status-pill status-delivered">Delivered</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      case "profile":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>Delivery Partner Profile</h3>
+              <p className="subtext">Your verified account information</p>
+            </div>
+            {user ? (
+              <div className="profile-details-grid">
+                <div className="profile-avatar-banner">
+                  <div className="large-avatar-circle">
+                    {user.firstName?.[0] || "D"}
+                  </div>
+                  <h4>{user.firstName} {user.lastName}</h4>
+                  <span className="role-badge">🚚 Delivery Partner</span>
+                </div>
+
+                <div className="profile-fields-card">
+                  <div className="field-row">
+                    <span className="field-label">Email Address</span>
+                    <span className="field-value">{user.email}</span>
+                  </div>
+                  <div className="field-row">
+                    <span className="field-label">Phone Number</span>
+                    <span className="field-value">{user.phone || "Not provided"}</span>
+                  </div>
+                  <div className="field-row">
+                    <span className="field-label">Total Earnings</span>
+                    <span className="field-value highlight-price">₹{stats.earningsToday}</span>
+                  </div>
+                  <div className="field-row">
+                    <span className="field-label">Rating</span>
+                    <span className="field-value">⭐ {stats.rating} / 5</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p>Loading profile...</p>
+            )}
+          </div>
+        );
+
+      default:
+        return (
+          <>
+            {/* Stat Widgets */}
+            <div className="stats-grid">
+              <div className="stat-widget green">
+                <div className="stat-icon-bg">📦</div>
+                <div className="stat-info">
+                  <span className="stat-label">Active Jobs</span>
+                  <h3 className="stat-value">{stats.todayDeliveries}</h3>
+                  <span className="stat-subtext">Deliveries in progress</span>
+                </div>
+              </div>
+
+              <div className="stat-widget emerald">
+                <div className="stat-icon-bg">💰</div>
+                <div className="stat-info">
+                  <span className="stat-label">Total Earnings</span>
+                  <h3 className="stat-value">₹{stats.earningsToday}</h3>
+                  <span className="stat-subtext">Delivery payouts</span>
+                </div>
+              </div>
+
+              <div className="stat-widget blue">
+                <div className="stat-icon-bg">⭐</div>
+                <div className="stat-info">
+                  <span className="stat-label">Rating</span>
+                  <h3 className="stat-value">{stats.rating}/5</h3>
+                  <span className="stat-subtext">Customer feedback</span>
+                </div>
+              </div>
+
+              <div className="stat-widget amber">
+                <div className="stat-icon-bg">✅</div>
+                <div className="stat-info">
+                  <span className="stat-label">Completion Rate</span>
+                  <h3 className="stat-value">{stats.completionRate}%</h3>
+                  <span className="stat-subtext">Successful drop-offs</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions Grid */}
+            <div className="dashboard-section-card">
+              <div className="section-card-header">
+                <h3>Quick Actions</h3>
+                <p className="subtext">Task shortcuts for delivery management</p>
+              </div>
+
+              <div className="quick-actions-grid">
+                <div className="action-tile green-accent">
+                  <div className="tile-header">
+                    <span className="tile-icon">📍</span>
+                    <h4>Find Nearby Jobs</h4>
+                  </div>
+                  <p>Use your current GPS location to discover available pickup requests.</p>
+                  <button
+                    className="btn-tile-action"
+                    onClick={handleUseCurrentLocation}
+                  >
+                    Use GPS Location →
+                  </button>
+                </div>
+
+                <div className="action-tile blue-accent">
+                  <div className="tile-header">
+                    <span className="tile-icon">🚚</span>
+                    <h4>Active Deliveries</h4>
+                  </div>
+                  <p>Update pickup, transit, and delivery progress for active packages.</p>
+                  <button
+                    className="btn-tile-action"
+                    onClick={() => setActiveSection("active-deliveries")}
+                  >
+                    Check Active Jobs →
+                  </button>
+                </div>
+
+                <div className="action-tile emerald-accent">
+                  <div className="tile-header">
+                    <span className="tile-icon">👤</span>
+                    <h4>Partner Profile</h4>
+                  </div>
+                  <p>View account details and payout statistics.</p>
+                  <button
+                    className="btn-tile-action"
+                    onClick={() => setActiveSection("profile")}
+                  >
+                    View Profile →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+    }
+  };
 
   return (
-    <div className="delivery-dashboard-page">
-      {/* Topbar */}
-      <div className="delivery-topbar">
-        <div className="delivery-topbar-inner">
-          <div className="delivery-brand">🌱 AgroConnect</div>
-          <div className="delivery-title">🚚 Delivery Partner Dashboard</div>
-          <div className="delivery-topbar-right">
-            <button className="lang-btn">English ▼</button>
-            <button className="location-btn">📍 Location</button>
-            <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
-              Logout
+    <div className="farmer-portal-container">
+      {/* Top Navbar */}
+      <header className="farmer-navbar">
+        <div className="navbar-left">
+          <div className="brand-logo" onClick={() => setActiveSection("dashboard")}>
+            <span className="brand-leaf">🌱</span>
+            <span className="brand-title">AgroConnect</span>
+            <span className="portal-badge">Delivery Partner Portal</span>
+          </div>
+        </div>
+
+        <div className="navbar-right">
+          <button
+            className="navbar-btn-market"
+            onClick={handleUseCurrentLocation}
+          >
+            📍 GPS Location
+          </button>
+          
+          <div className="user-profile-menu">
+            <div className="avatar-circle">
+              {user?.firstName?.[0] || "D"}
+            </div>
+            <span className="user-name-display">{user?.firstName || "Partner"}</span>
+            <button
+              className="btn-logout"
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+              title="Logout"
+            >
+              🚪 Logout
             </button>
-            <div className="profile-circle">D</div>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="delivery-layout">
+      {/* Main Workspace Layout */}
+      <div className="farmer-body-layout">
         {/* Sidebar */}
-        <div className="delivery-sidebar">
-          <h3 className="sidebar-title">🚚 Delivery Panel</h3>
-
-          <div className="sidebar-item active">Dashboard</div>
-          <div className="sidebar-item">Active Deliveries</div>
-          <div className="sidebar-item">Completed</div>
-          <div className="sidebar-item">Earnings</div>
-          <div className="sidebar-item">Route Planner</div>
-          <div className="sidebar-item">Navigation</div>
-          <div className="sidebar-item">Support</div>
-          <div className="sidebar-item">Profile</div>
-          <div className="sidebar-item">Logout</div>
-        </div>
-
-        {/* Main Content */}
-        <div className="delivery-main">
-          {/* Welcome */}
-          <div className="delivery-welcome">
-            <h2>Welcome, Delivery Partner 👋</h2>
-            <p>Track your deliveries, optimize routes, and maximize earnings</p>
-          </div>
-
-          {/* Stats Grid */}
-          <div className="delivery-stats-grid">
-            {stats.map((stat, idx) => (
-              <div className="delivery-stat-card" key={idx}>
-                <div className="stat-icon">{stat.icon}</div>
-                <div className="stat-info">
-                  <p className="stat-label">{stat.label}</p>
-                  <h3 className="stat-value">{stat.value}</h3>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Active Deliveries */}
-          <div className="delivery-section">
-            <div className="section-header">
-              <h3>🔴 Active Deliveries ({activeDeliveries.length})</h3>
-              <button className="refresh-btn">🔄 Refresh</button>
+        <aside className="farmer-sidebar">
+          <div className="sidebar-nav-list">
+            <div
+              className={`sidebar-nav-item ${activeSection === "dashboard" ? "active" : ""}`}
+              onClick={() => setActiveSection("dashboard")}
+            >
+              <span className="nav-icon">📊</span>
+              <span className="nav-label">Dashboard</span>
             </div>
 
-            <div className="active-deliveries">
-              {activeDeliveries.map((delivery) => (
-                <div className="delivery-card active" key={delivery.id}>
-                  <div className="delivery-header">
-                    <div className="delivery-id">
-                      <span className="id-label">{delivery.id}</span>
-                      <span className={`delivery-type ${delivery.type.toLowerCase()}`}>{delivery.type}</span>
-                    </div>
-                    <div className={`delivery-status ${delivery.status.toLowerCase()}`}>{delivery.status}</div>
-                  </div>
+            <div
+              className={`sidebar-nav-item ${activeSection === "active-deliveries" ? "active" : ""}`}
+              onClick={() => setActiveSection("active-deliveries")}
+            >
+              <span className="nav-icon">🚚</span>
+              <span className="nav-label">Active Jobs</span>
+              {activeDeliveries.length > 0 && (
+                <span className="nav-count-badge warning">{activeDeliveries.length}</span>
+              )}
+            </div>
 
-                  <div className="delivery-details">
-                    <div className="route-info">
-                      <div className="route-point from">
-                        <span className="point">📤</span>
-                        <span className="text">{delivery.from}</span>
-                      </div>
-                      <div className="route-arrow">→</div>
-                      <div className="route-point to">
-                        <span className="point">📥</span>
-                        <span className="text">{delivery.to}</span>
-                      </div>
-                    </div>
+            <div
+              className={`sidebar-nav-item ${activeSection === "available-orders" ? "active" : ""}`}
+              onClick={() => setActiveSection("available-orders")}
+            >
+              <span className="nav-icon">📍</span>
+              <span className="nav-label">Available Orders</span>
+            </div>
 
-                    <div className="delivery-meta">
-                      <span className="meta-item">📍 {delivery.location}</span>
-                      <span className="meta-item">📏 {delivery.distance}</span>
-                      <span className="meta-item">⏱️ ~{delivery.time}</span>
-                    </div>
-                  </div>
+            <div
+              className={`sidebar-nav-item ${activeSection === "completed" ? "active" : ""}`}
+              onClick={() => setActiveSection("completed")}
+            >
+              <span className="nav-icon">✅</span>
+              <span className="nav-label">Completed</span>
+            </div>
 
-                  <div className="delivery-actions">
-                    <button className="action-btn primary">📍 Navigate</button>
-                    <button className="action-btn">☎️ Contact</button>
-                    <button className="action-btn">📸 Proof</button>
-                  </div>
-                </div>
-              ))}
+            <div
+              className={`sidebar-nav-item ${activeSection === "profile" ? "active" : ""}`}
+              onClick={() => setActiveSection("profile")}
+            >
+              <span className="nav-icon">👤</span>
+              <span className="nav-label">Profile</span>
             </div>
           </div>
+        </aside>
 
-          {/* Completed Today */}
-          <div className="delivery-section">
-            <div className="section-header">
-              <h3>✅ Completed Today ({completedToday.length})</h3>
-              <button className="view-all">View Details →</button>
-            </div>
+        {/* Main Content Area */}
+        <main className="farmer-main-content">
+          {error && <div className="error-banner">{error}</div>}
 
-            <div className="completed-list">
-              {completedToday.map((delivery) => (
-                <div className="completed-item" key={delivery.id}>
-                  <div className="completed-left">
-                    <span className="completed-id">{delivery.id}</span>
-                    <span className="completed-from">{delivery.from}</span>
-                  </div>
-                  <div className="completed-right">
-                    <span className="completed-amount">{delivery.amount}</span>
-                    <span className="completed-time">{delivery.completedAt}</span>
-                  </div>
-                </div>
-              ))}
+          {/* Welcome Card Banner */}
+          <div className="welcome-banner-card">
+            <div className="banner-text">
+              <h2>{sectionTitle[activeSection]}</h2>
+              <p>{sectionDescription[activeSection]}</p>
             </div>
+            {activeSection === "dashboard" && (
+              <div className="banner-action-side">
+                <button
+                  className="banner-primary-btn"
+                  onClick={handleUseCurrentLocation}
+                >
+                  📍 Find Jobs Near Me
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Route Optimization */}
-          <div className="delivery-section">
-            <h3>🗺️ Smart Route Planner</h3>
-            <div className="route-planner">
-              <div className="route-info-box">
-                <p>
-                  <strong>Optimized Route:</strong> Complete {activeDeliveries.length} deliveries in ~25 minutes
-                </p>
-                <button className="optimize-btn">🎯 Optimize Route</button>
-              </div>
-              <div className="map-placeholder">
-                <p>📍 Map will appear here after API integration</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Earnings Summary */}
-          <div className="delivery-section">
-            <h3>💰 Earnings This Week</h3>
-            <div className="earnings-grid">
-              <div className="earnings-card">
-                <div className="earnings-day">Monday</div>
-                <div className="earnings-amount">₹1,450</div>
-                <div className="earnings-deliveries">5 deliveries</div>
-              </div>
-              <div className="earnings-card">
-                <div className="earnings-day">Tuesday</div>
-                <div className="earnings-amount">₹1,680</div>
-                <div className="earnings-deliveries">6 deliveries</div>
-              </div>
-              <div className="earnings-card">
-                <div className="earnings-day">Wednesday</div>
-                <div className="earnings-amount">₹1,850</div>
-                <div className="earnings-deliveries">7 deliveries</div>
-              </div>
-              <div className="earnings-card">
-                <div className="earnings-day">Today</div>
-                <div className="earnings-amount">₹1,200</div>
-                <div className="earnings-deliveries">5 deliveries (ongoing)</div>
-              </div>
-            </div>
-          </div>
-        </div>
+          {/* Dynamic Content */}
+          {renderSectionContent()}
+        </main>
       </div>
     </div>
   );
 };
 
 export default DeliveryDashboard;
+

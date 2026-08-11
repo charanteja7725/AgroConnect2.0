@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { productAPI, cartAPI } from "../../services/api.js";
+import { productAPI, cartAPI, userAPI } from "../../services/api.js";
 import { useAuth, useNotification } from "../../context/AppContext.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import VoiceSearch from "../../components/VoiceSearch.jsx";
 import { LocationService } from "../../services/LocationService.js";
 import "./buyerdashboard.css";
 
 const BuyerDashboard = () => {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { addNotification } = useNotification();
@@ -16,12 +18,22 @@ const BuyerDashboard = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [nearbyFarmers, setNearbyFarmers] = useState([]);
+  const [filters, setFilters] = useState({
+    category: "",
+    minPrice: "",
+    maxPrice: "",
+    sortBy: "newest"
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const loadProducts = async (location = null, search = "") => {
+  const loadProducts = async (location = null, search = "", page = 1) => {
     setLoading(true);
     setError("");
     try {
-      const query = {};
+      const query = { page, limit: 20 };
       if (search) {
         query.search = search;
       }
@@ -30,12 +42,29 @@ const BuyerDashboard = () => {
         query.longitude = location.longitude;
         query.maxDistance = 20000;
       }
+      if (filters.category) query.category = filters.category;
+      if (filters.minPrice) query.minPrice = filters.minPrice;
+      if (filters.maxPrice) query.maxPrice = filters.maxPrice;
+      if (filters.sortBy) query.sortBy = filters.sortBy;
+
       const data = await productAPI.getAllProducts(query);
       setProducts(data.products || []);
+      setTotalPages(data.pages || 1);
+      setCurrentPage(data.page || 1);
     } catch (err) {
       setError(err.message || "Unable to fetch products");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadNearbyFarmers = async (location) => {
+    if (!location?.latitude || !location?.longitude) return;
+    try {
+      const farmers = await userAPI.getNearby(location.longitude, location.latitude, 20000, "farmer");
+      setNearbyFarmers(farmers.users || []);
+    } catch (err) {
+      console.error("Unable to fetch nearby farmers:", err);
     }
   };
 
@@ -73,11 +102,16 @@ const BuyerDashboard = () => {
     }
   };
 
-  const nearbyFarmers = [
-    { id: 1, name: "Ramesh Kumar", distance: "2.5 km away", products: 8 },
-    { id: 2, name: "Suresh Patel", distance: "3.2 km away", products: 12 },
-    { id: 3, name: "Anil Sharma", distance: "1.8 km away", products: 6 },
-  ];
+  const handleFilterChange = (filterType, value) => {
+    setFilters(prev => ({ ...prev, [filterType]: value }));
+    setCurrentPage(1);
+    loadProducts(locationInfo, searchText, 1);
+  };
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    loadProducts(locationInfo, searchText, page);
+  };
 
   return (
     <div className="customer-dashboard-page">
@@ -104,7 +138,7 @@ const BuyerDashboard = () => {
                 navigate("/login");
               }}
             >
-              Logout
+              {t("logout")}
             </button>
           </div>
         </div>
@@ -115,16 +149,15 @@ const BuyerDashboard = () => {
         <div className="search-bar-wrapper">
           <div className="search-bar">
             <select>
-              <option>All Areas</option>
-              <option>Nearby</option>
-              <option>Within 5 km</option>
+              <option>{t("allAreas")}</option>
+              <option>{t("nearby")}</option>
+              <option>{t("within5km")}</option>
             </select>
 
             <VoiceSearch
               onSearch={(value) => setSearchText(value)}
-              placeholder="Search for fresh vegetables, fruits, grains..."
+              placeholder={t("searchPlaceholder")}
             />
-
             <button
               className="search-btn"
               onClick={() => loadProducts(locationInfo, searchText)}
@@ -143,15 +176,16 @@ const BuyerDashboard = () => {
                   setLocationAddress(
                     address
                       ? `${address.city || address.town || address.village || ""}, ${address.state || ""}`.trim()
-                      : "Current location"
+                      : t("currentLocation")
                   );
                   loadProducts(location, searchText);
+                  loadNearbyFarmers(location);
                 } catch (error) {
                   setLocationInfo({ error: error.message });
                 }
               }}
             >
-              Use My Location
+              {t("useMyLocation")}
             </button>
             {locationInfo && (
               <div className="location-status">
@@ -159,7 +193,7 @@ const BuyerDashboard = () => {
                   `Location error: ${locationInfo.error}`
                 ) : (
                   <>
-                    <span>{`Current location: ${locationInfo.latitude.toFixed(3)}, ${locationInfo.longitude.toFixed(3)}`}</span>
+                    <span>{`${t("currentLocation")}: ${locationInfo.latitude.toFixed(3)}, ${locationInfo.longitude.toFixed(3)}`}</span>
                     {locationAddress && <span> · {locationAddress}</span>}
                   </>
                 )}
@@ -169,27 +203,79 @@ const BuyerDashboard = () => {
         </div>
 
         {/* Nearby Farmers */}
-        <div className="section-title">📍 Nearby Farmers</div>
+        <div className="section-title">📍 {t("nearbyFarmers")}</div>
         <div className="farmer-strip">
-          {nearbyFarmers.map((farmer) => (
-            <div className="farmer-mini-card" key={farmer.id}>
-              <div className="farmer-mini-icon">🌱</div>
-
-              <div className="farmer-mini-info">
-                <h4>{farmer.name}</h4>
-                <p>{farmer.distance}</p>
+          {nearbyFarmers.length > 0 ? (
+            nearbyFarmers.slice(0, 5).map((farmer) => (
+              <div className="farmer-mini-card" key={farmer._id}>
+                <div className="farmer-mini-icon">🌱</div>
+                <div className="farmer-mini-info">
+                  <h4>{farmer.firstName} {farmer.lastName}</h4>
+                  <p>{farmer.address || "Nearby"}</p>
+                </div>
+                <span className="mini-badge">{farmer.totalProducts || 0} products</span>
               </div>
-
-              <span className="mini-badge">{farmer.products} products</span>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="no-farmers">{t("noNearbyFarmers")}</p>
+          )}
         </div>
 
         {/* Products */}
         <div className="products-header">
-          <h3>Fresh Products Available</h3>
-          <button className="filter-btn">Filter</button>
+          <h3>{t("freshProductsAvailable")}</h3>
+          <div className="header-controls">
+            <select
+              value={filters.sortBy}
+              onChange={(e) => handleFilterChange("sortBy", e.target.value)}
+              className="sort-select"
+            >
+              <option value="newest">{t("newestFirst")}</option>
+              <option value="price_low">{t("priceLowToHigh")}</option>
+              <option value="price_high">{t("priceHighToLow")}</option>
+              <option value="rating">{t("highestRated")}</option>
+            </select>
+            <button className="filter-btn" onClick={() => setShowFilters(!showFilters)}>
+              {showFilters ? t("hideFilters") : t("showFilters")}
+            </button>
+          </div>
         </div>
+
+        {/* Filters */}
+        {showFilters && (
+          <div className="filters-section">
+            <div className="filter-row">
+              <select
+                value={filters.category}
+                onChange={(e) => handleFilterChange("category", e.target.value)}
+              >
+                <option value="">All Categories</option>
+                <option value="vegetables">Vegetables</option>
+                <option value="fruits">Fruits</option>
+                <option value="grains">Grains</option>
+                <option value="dairy">Dairy</option>
+                <option value="spices">Spices</option>
+              </select>
+              <input
+                type="number"
+                placeholder="Min Price"
+                value={filters.minPrice}
+                onChange={(e) => handleFilterChange("minPrice", e.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Max Price"
+                value={filters.maxPrice}
+                onChange={(e) => handleFilterChange("maxPrice", e.target.value)}
+              />
+              <button onClick={() => {
+                setFilters({ category: "", minPrice: "", maxPrice: "", sortBy: "newest" });
+                setCurrentPage(1);
+                loadProducts(locationInfo, searchText, 1);
+              }}>Clear Filters</button>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="loading-state">Loading products...</div>
@@ -226,41 +312,44 @@ const BuyerDashboard = () => {
           </div>
         )}
 
-        {/* Price comparison */}
-        <div className="comparison-box">
-          <h3>Price Comparison</h3>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="pagination">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </button>
+            <span>Page {currentPage} of {totalPages}</span>
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </button>
+          </div>
+        )}
 
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Farmer 1</th>
-                <th>Farmer 2</th>
-                <th>Best Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Tomatoes</td>
-                <td>₹40/kg</td>
-                <td>₹45/kg</td>
-                <td className="best-price">₹40/kg</td>
-              </tr>
-              <tr>
-                <td>Potatoes</td>
-                <td>₹30/kg</td>
-                <td>₹32/kg</td>
-                <td className="best-price">₹30/kg</td>
-              </tr>
-              <tr>
-                <td>Onions</td>
-                <td>₹35/kg</td>
-                <td>₹33/kg</td>
-                <td className="best-price">₹33/kg</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        {/* Price comparison - remove hardcoded table */}
+        {products.length > 0 && (
+          <div className="comparison-box">
+            <h3>Market Insights</h3>
+            <p>Compare prices across different farmers and find the best deals!</p>
+            <div className="market-stats">
+              <div className="stat-item">
+                <span className="stat-label">Products Available:</span>
+                <span className="stat-value">{products.length}</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Average Price:</span>
+                <span className="stat-value">
+                  ₹{Math.round(products.reduce((sum, p) => sum + p.price, 0) / products.length) || 0}/kg
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

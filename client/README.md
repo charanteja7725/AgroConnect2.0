@@ -10,7 +10,7 @@ Use the following commands in the `client/` directory:
 Installs frontend dependencies.
 
 ### `npm run dev`
-Runs the frontend in development mode at `http://localhost:5173`.
+Runs the frontend in development mode at `http://localhost:5003`.
 
 ### `npm run build`
 Bundles the app for production.
@@ -20,7 +20,7 @@ Bundles the app for production.
 Create a `.env` file in `client/` with:
 
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=http://localhost:5003/api
 ```
 
 ## Frontend Features

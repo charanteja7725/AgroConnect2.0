@@ -7,17 +7,20 @@ import {
   LocationProvider,
   NotificationProvider,
 } from "./context/AppContext.jsx";
+import { LanguageProvider } from "./context/LanguageContext.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <AuthProvider>
-      <LocationProvider>
-        <CartProvider>
-          <NotificationProvider>
-            <App />
-          </NotificationProvider>
-        </CartProvider>
-      </LocationProvider>
+      <LanguageProvider>
+        <LocationProvider>
+          <CartProvider>
+            <NotificationProvider>
+              <App />
+            </NotificationProvider>
+          </CartProvider>
+        </LocationProvider>
+      </LanguageProvider>
     </AuthProvider>
   </React.StrictMode>
 );

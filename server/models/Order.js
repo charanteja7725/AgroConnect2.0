@@ -239,7 +239,7 @@ orderSchema.pre("save", async function (next) {
 });
 
 module.exports = {
-  Cart: mongoose.model("Cart", cartSchema),
-  Order: mongoose.model("Order", orderSchema),
-  Payment: mongoose.model("Payment", paymentSchema),
+  Cart: mongoose.models.Cart || mongoose.model("Cart", cartSchema),
+  Order: mongoose.models.Order || mongoose.model("Order", orderSchema),
+  Payment: mongoose.models.Payment || mongoose.model("Payment", paymentSchema),
 };

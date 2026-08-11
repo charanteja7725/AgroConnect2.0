@@ -11,7 +11,10 @@ import AddProduct from "./pages/farmer/AddProduct";
 import BuyerDashboard from "./pages/buyer/BuyerDashboard";
 import Cart from "./pages/buyer/Cart";
 import FertilizerDashboard from "./pages/fertilizer/FertilizerDashboard";
+import AddFertilizerProduct from "./pages/fertilizer/AddFertilizerProduct";
+import Verification from "./pages/Verification";
 import DeliveryDashboard from "./pages/delivery/DeliveryDashboard";
+import DeliveryDetail from "./pages/delivery/DeliveryDetail";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
 function NotificationList() {
@@ -86,6 +89,22 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/fertilizer/add-product"
+          element={
+            <ProtectedRoute allowedRoles={["fertilizer_seller"]}>
+              <AddFertilizerProduct />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/verification"
+          element={
+            <ProtectedRoute allowedRoles={["farmer", "fertilizer_seller"]}>
+              <Verification />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Delivery Routes */}
         <Route
@@ -93,6 +112,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["delivery_partner"]}>
               <DeliveryDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/delivery/:id"
+          element={
+            <ProtectedRoute allowedRoles={["delivery_partner"]}>
+              <DeliveryDetail />
             </ProtectedRoute>
           }
         />

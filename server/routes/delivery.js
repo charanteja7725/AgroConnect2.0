@@ -37,7 +37,7 @@ router.get("/", protect, async (req, res) => {
 // @access  Private (Delivery Partner)
 router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) => {
   try {
-    const { longitude, latitude, maxDistance = 50000 } = req.query;
+    const { longitude, latitude, maxDistance = 0 } = req.query;
 
     if (!longitude || !latitude) {
       return res.status(400).json({ error: "Location coordinates are required" });

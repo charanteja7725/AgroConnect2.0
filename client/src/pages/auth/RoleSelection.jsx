@@ -1,8 +1,10 @@
 import { useNavigate } from "react-router-dom";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import "./role.css";
 
 const RoleSelection = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   return (
     <div className="ag-role-page">
@@ -14,9 +16,9 @@ const RoleSelection = () => {
 
       {/* Main Content */}
       <div className="ag-role-content">
-        <h2 className="ag-role-title">Choose Your Role</h2>
+        <h2 className="ag-role-title">{t("chooseYourRole")}</h2>
         <p className="ag-role-subtitle">
-          Select how you’d like to use AgroConnect
+          {t("chooseRoleSubtitle")}
         </p>
 
         <div className="ag-role-grid">
@@ -27,11 +29,11 @@ const RoleSelection = () => {
             onClick={() => navigate("/register?role=farmer")}
           >
             <div className="ag-role-icon farmer-icon">🌱</div>
-            <h3>Farmer</h3>
+            <h3>{t("farmer")}</h3>
             <p>
-              Sell your produce directly to consumers with voice-assisted product listing
+              {t("farmerCardBenefits")}
             </p>
-            <span className="ag-role-btn farmer-link">Get Started →</span>
+            <span className="ag-role-btn farmer-link">{t("getStartedArrow")}</span>
           </div>
 
           {/* Customer */}
@@ -40,11 +42,11 @@ const RoleSelection = () => {
             onClick={() => navigate("/register?role=buyer")}
           >
             <div className="ag-role-icon customer-icon">🛒</div>
-            <h3>Customer</h3>
+            <h3>{t("customer")}</h3>
             <p>
-              Buy fresh products directly from nearby farmers at the best prices
+              {t("customerCardBenefits")}
             </p>
-            <span className="ag-role-btn customer-link">Get Started →</span>
+            <span className="ag-role-btn customer-link">{t("getStartedArrow")}</span>
           </div>
 
           {/* Fertilizer Seller */}
@@ -53,11 +55,11 @@ const RoleSelection = () => {
             onClick={() => navigate("/register?role=fertilizer_seller")}
           >
             <div className="ag-role-icon seller-icon">🏪</div>
-            <h3>Fertilizer Seller</h3>
+            <h3>{t("fertilizerSeller")}</h3>
             <p>
-              Sell fertilizers and agricultural supplies to local farmers
+              {t("manageProductsDesc")}
             </p>
-            <span className="ag-role-btn seller-link">Get Started →</span>
+            <span className="ag-role-btn seller-link">{t("getStartedArrow")}</span>
           </div>
 
           {/* Delivery Partner */}
@@ -66,11 +68,11 @@ const RoleSelection = () => {
             onClick={() => navigate("/register?role=delivery_partner")}
           >
             <div className="ag-role-icon delivery-icon">🚚</div>
-            <h3>Delivery Partner</h3>
+            <h3>{t("deliveryPartner")}</h3>
             <p>
-              Earn by delivering fresh produce from farmers to customers
+              {t("deliveryCardBenefits")}
             </p>
-            <span className="ag-role-btn delivery-link">Get Started →</span>
+            <span className="ag-role-btn delivery-link">{t("getStartedArrow")}</span>
           </div>
 
           {/* Admin */}
@@ -79,18 +81,18 @@ const RoleSelection = () => {
             onClick={() => navigate("/login")}
           >
             <div className="ag-role-icon admin-icon">🛡️</div>
-            <h3>Admin</h3>
+            <h3>{t("admin")}</h3>
             <p>
-              Manage the platform, users, and monitor marketplace analytics
+              {t("adminSubtitle")}
             </p>
-            <span className="ag-role-btn admin-link">Get Started →</span>
+            <span className="ag-role-btn admin-link">{t("getStartedArrow")}</span>
           </div>
 
         </div>
 
         {/* Login Link */}
         <p className="ag-role-login-text">
-          Already have an account? <span onClick={() => navigate("/login")}>Login here</span>
+          {t("alreadyHaveAccount")} <span onClick={() => navigate("/login")}>{t("loginHere")}</span>
         </p>
       </div>
 

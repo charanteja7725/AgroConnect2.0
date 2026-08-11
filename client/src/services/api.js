@@ -1,12 +1,16 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
 
 // Helper function to make API requests
 const apiRequest = async (endpoint, options = {}) => {
   const token = localStorage.getItem("token");
   const headers = {
-    "Content-Type": "application/json",
-    ...options.headers,
+    ...(options.headers || {}),
   };
+
+  const isFormData = options.body instanceof FormData;
+  if (!isFormData && !headers["Content-Type"] && !headers["content-type"]) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -86,13 +90,19 @@ export const authAPI = {
 export const userAPI = {
   getUser: (id) => apiRequest(`/users/${id}`),
 
+  submitVerification: (verificationData) =>
+    apiRequest(`/users/verification`, {
+      method: "POST",
+      body: verificationData,
+    }),
+
   updateProfile: (id, userData) =>
     apiRequest(`/users/${id}`, {
       method: "PUT",
       body: JSON.stringify(userData),
     }),
 
-  getNearby: (longitude, latitude, maxDistance = 5000, role = "farmer") =>
+  getNearby: (longitude, latitude, maxDistance = 10, role = "farmer") =>
     apiRequest(`/users/search/nearby?longitude=${longitude}&latitude=${latitude}&maxDistance=${maxDistance}&role=${role}`),
 
   addReview: (userId, rating, comment) =>
@@ -240,10 +250,71 @@ export const pricingAPI = {
 export const notificationAPI = {
   getNotifications: () => apiRequest("/notifications"),
 
+  markAsRead: (notificationId) =>
+    apiRequest(`/notifications/${notificationId}/read`, {
+      method: "PUT",
+    }),
+
   sendNotification: (userId, title, message, type) =>
     apiRequest("/notifications/send", {
       method: "POST",
       body: JSON.stringify({ userId, title, message, type }),
+    }),
+};
+
+// Admin APIs
+export const adminAPI = {
+  getStats: () => apiRequest("/admin/stats"),
+
+  getUsers: (params = {}) => {
+    const query = new URLSearchParams(params);
+    return apiRequest(`/admin/users?${query.toString()}`);
+  },
+
+  getOrders: (params = {}) => {
+    const query = new URLSearchParams(params);
+    return apiRequest(`/admin/orders?${query.toString()}`);
+  },
+
+  getProducts: (params = {}) => {
+    const query = new URLSearchParams(params);
+    return apiRequest(`/admin/products?${query.toString()}`);
+  },
+
+  getDeliveries: (params = {}) => {
+    const query = new URLSearchParams(params);
+    return apiRequest(`/admin/deliveries?${query.toString()}`);
+  },
+
+  updateUserStatus: (userId, isActive) =>
+    apiRequest(`/admin/users/${userId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ isActive }),
+    }),
+
+  updateOrderStatus: (orderId, status, note) =>
+    apiRequest(`/admin/orders/${orderId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, note }),
+    }),
+
+  deleteProduct: (productId) =>
+    apiRequest(`/admin/products/${productId}`, {
+      method: "DELETE",
+    }),
+
+  getVerifications: () => apiRequest("/admin/verifications"),
+
+  reviewVerification: (userId, status, reviewNotes) =>
+    apiRequest(`/admin/verifications/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status, reviewNotes }),
+    }),
+
+  sendNotification: (userIds, title, message, type) =>
+    apiRequest("/admin/notifications/send", {
+      method: "POST",
+      body: JSON.stringify({ userIds, title, message, type }),
     }),
 };
 

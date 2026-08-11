@@ -54,8 +54,8 @@ cp .env.example .env
 **Key Environment Variables:**
 ```env
 NODE_ENV=development
-PORT=5000
-CLIENT_URL=http://localhost:5173
+PORT=5003
+CLIENT_URL=http://localhost:5003
 
 # MongoDB Connection
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/agroconnect
@@ -98,7 +98,7 @@ cp .env.example .env
 
 **Key Variables:**
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=http://localhost:5003/api
 ```
 
 ### 2. Build Configuration
@@ -127,7 +127,7 @@ mongod
 
 **Connection String:**
 ```env
-MONGODB_URI=mongodb://localhost:27017/agroconnect
+MONGODB_URI=mongodb://127.0.0.1:27017/agroconnect
 ```
 
 ---
@@ -173,7 +173,7 @@ npm start
 **Expected Output:**
 ```
 ✅ MongoDB Connected
-🚀 Server running at http://localhost:5000
+🚀 Server running at http://localhost:5003
 ```
 
 ### Terminal 2: Start Frontend Dev Server
@@ -187,12 +187,12 @@ npm run dev
 ```
 VITE v8.0.0 ready in 235 ms
 
-➜  Local:   http://localhost:5173/
+➜  Local:   http://localhost:5003/
 ```
 
 ### Open in Browser
 ```
-http://localhost:5173
+http://localhost:5003
 ```
 
 ---
@@ -328,7 +328,7 @@ Access to XMLHttpRequest blocked by CORS policy
 
 ### Port Already in Use
 ```
-Error: listen EADDRINUSE: address already in use :::5000
+Error: listen EADDRINUSE: address already in use :::
 ```
 **Solution:** Kill process or change PORT in `.env`
 
@@ -357,7 +357,7 @@ Use Postman or curl to test endpoints:
 
 ```bash
 # Login
-curl -X POST http://localhost:5000/api/auth/login \
+curl -X POST http://localhost:5003/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "user@example.com",
@@ -365,10 +365,10 @@ curl -X POST http://localhost:5000/api/auth/login \
   }'
 
 # Get Products
-curl http://localhost:5000/api/products
+curl http://localhost:5003/api/products
 
 # Health Check
-curl http://localhost:5000/api/health
+curl http://localhost:5003/api/health
 ```
 
 ### Frontend Testing

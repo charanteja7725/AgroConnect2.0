@@ -20,13 +20,14 @@ const paymentRoutes = require("./routes/payments");
 const deliveryRoutes = require("./routes/delivery");
 const notificationRoutes = require("./routes/notifications");
 const priceRoutes = require("./routes/aiPricing");
+const adminRoutes = require("./routes/admin");
 
 // Initialize Express App
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: process.env.CLIENT_URL || "http://localhost:5003",
     methods: ["GET", "POST"],
   },
 });
@@ -34,7 +35,7 @@ const io = socketIO(server, {
 // Middleware
 app.use(helmet());
 
-const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
+const clientOrigin = process.env.CLIENT_URL || "http://localhost:5003";
 app.use(
   cors({
     origin: clientOrigin,
@@ -60,12 +61,6 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Static files
 app.use(express.static("public"));
 
-// MongoDB Connection
-mongoose
-  .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect")
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Error:", err));
-
 // Make io accessible to routes
 app.set("io", io);
 
@@ -79,6 +74,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/pricing", priceRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Health check endpoint
 app.get("/api/health", (req, res) => {
@@ -134,16 +130,23 @@ app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-// Start Server
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`
+if (require.main === module && process.env.NODE_ENV !== "test") {
+  mongoose
+    .connect(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/agroconnect")
+    .then(() => console.log("✅ MongoDB Connected"))
+    .catch((err) => console.error("❌ MongoDB Error:", err));
+
+  // Start Server
+  const PORT = Number(process.env.PORT) || 5001;
+  server.listen(PORT, () => {
+    console.log(`
 ╔════════════════════════════════════════╗
 ║   🌱 AgroConnect Server Running 🌱    ║
 ║   Port: ${PORT}                             ║
 ║   Environment: ${process.env.NODE_ENV || "development"}           ║
 ╚════════════════════════════════════════╝
   `);
-});
+  });
+}
 
 module.exports = { app, server, io };

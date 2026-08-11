@@ -1,6 +1,9 @@
 const express = require("express");
 const User = require("../models/User");
+const Product = require("../models/Product");
 const { protect, authorize } = require("../middleware/auth");
+const upload = require("../middleware/upload");
+const { uploadBuffer } = require("../utils/cloudinary");
 
 const router = express.Router();
 
@@ -17,9 +20,14 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
+    const productCount = await Product.countDocuments({ seller: user._id, isActive: true });
+
+    const profile = user.getProfile();
+    profile.totalProducts = productCount;
+
     res.json({
       success: true,
-      user: user.getProfile(),
+      user: profile,
     });
   } catch (err) {
     res.status(500).json({ error: "Error fetching user: " + err.message });
@@ -31,11 +39,14 @@ router.get("/:id", async (req, res) => {
 // @access  Public
 router.get("/search/nearby", async (req, res) => {
   try {
-    const { longitude, latitude, maxDistance = 5000, role = "farmer" } = req.query;
+    const { longitude, latitude, maxDistance, role = "farmer" } = req.query;
 
     if (!longitude || !latitude) {
       return res.status(400).json({ error: "Longitude and latitude are required" });
     }
+
+    const parsedMaxDistance = Number(maxDistance);
+    const maxDistanceValue = Number.isFinite(parsedMaxDistance) && parsedMaxDistance > 0 ? parsedMaxDistance : 10000;
 
     const users = await User.find({
       location: {
@@ -44,10 +55,10 @@ router.get("/search/nearby", async (req, res) => {
             type: "Point",
             coordinates: [parseFloat(longitude), parseFloat(latitude)],
           },
-          $maxDistance: parseInt(maxDistance),
+          $maxDistance: maxDistanceValue,
         },
       },
-      role: role,
+      role,
       isActive: true,
     });
 
@@ -60,6 +71,138 @@ router.get("/search/nearby", async (req, res) => {
     res.status(500).json({ error: "Error searching users: " + err.message });
   }
 });
+
+// @route   POST /api/users/verification
+// @desc    Submit verification documents for farmers or fertilizer sellers
+// @access  Private
+router.post(
+  "/verification",
+  protect,
+  upload.fields([
+    { name: "identityDocument", maxCount: 1 },
+    { name: "farmingProof", maxCount: 1 },
+    { name: "farmPhoto", maxCount: 1 },
+    { name: "shopCertificate", maxCount: 1 },
+    { name: "shopPhoto", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const {
+        farmerId,
+        shopName,
+        sellerId,
+        farmLocation: farmLocationRaw,
+        shopLocation: shopLocationRaw,
+        reviewNotes,
+      } = req.body;
+
+      let farmLocation = null;
+      let shopLocation = null;
+
+      try {
+        farmLocation = farmLocationRaw ? JSON.parse(farmLocationRaw) : null;
+      } catch (error) {
+        farmLocation = farmLocationRaw;
+      }
+
+      try {
+        shopLocation = shopLocationRaw ? JSON.parse(shopLocationRaw) : null;
+      } catch (error) {
+        shopLocation = shopLocationRaw;
+      }
+
+      const uploadedFiles = {};
+
+      if (req.files?.identityDocument?.[0]) {
+        const result = await uploadBuffer(
+          req.files.identityDocument[0].buffer,
+          "agroconnect/verification",
+          `identity_${req.user._id}_${Date.now()}`
+        );
+        uploadedFiles.identityDocumentUrl = result.secure_url;
+      }
+
+      if (req.files?.farmingProof?.[0]) {
+        const result = await uploadBuffer(
+          req.files.farmingProof[0].buffer,
+          "agroconnect/verification",
+          `farmingProof_${req.user._id}_${Date.now()}`
+        );
+        uploadedFiles.farmingProofUrl = result.secure_url;
+      }
+
+      if (req.files?.farmPhoto?.[0]) {
+        const result = await uploadBuffer(
+          req.files.farmPhoto[0].buffer,
+          "agroconnect/verification",
+          `farmPhoto_${req.user._id}_${Date.now()}`
+        );
+        uploadedFiles.farmPhotoUrl = result.secure_url;
+      }
+
+      if (req.files?.shopCertificate?.[0]) {
+        const result = await uploadBuffer(
+          req.files.shopCertificate[0].buffer,
+          "agroconnect/verification",
+          `shopCertificate_${req.user._id}_${Date.now()}`
+        );
+        uploadedFiles.shopCertificateUrl = result.secure_url;
+      }
+
+      if (req.files?.shopPhoto?.[0]) {
+        const result = await uploadBuffer(
+          req.files.shopPhoto[0].buffer,
+          "agroconnect/verification",
+          `shopPhoto_${req.user._id}_${Date.now()}`
+        );
+        uploadedFiles.shopPhotoUrl = result.secure_url;
+      }
+
+      if (req.user.role === "farmer") {
+        req.user.farmerVerification = {
+          ...(req.user.farmerVerification || {}),
+          status: "pending",
+          identityDocumentUrl:
+            uploadedFiles.identityDocumentUrl || req.user.farmerVerification?.identityDocumentUrl,
+          farmingProofUrl:
+            uploadedFiles.farmingProofUrl || req.user.farmerVerification?.farmingProofUrl,
+          farmPhotoUrl: uploadedFiles.farmPhotoUrl || req.user.farmerVerification?.farmPhotoUrl,
+          farmerId: farmerId || req.user.farmerVerification?.farmerId,
+          farmLocation: farmLocation || req.user.farmerVerification?.farmLocation,
+          reviewNotes: reviewNotes || req.user.farmerVerification?.reviewNotes,
+          submittedAt: new Date(),
+          verifiedAt: null,
+          verifiedBy: null,
+        };
+      } else if (req.user.role === "fertilizer_seller") {
+        req.user.sellerVerification = {
+          ...(req.user.sellerVerification || {}),
+          status: "pending",
+          identityDocumentUrl:
+            uploadedFiles.identityDocumentUrl || req.user.sellerVerification?.identityDocumentUrl,
+          shopCertificateUrl:
+            uploadedFiles.shopCertificateUrl || req.user.sellerVerification?.shopCertificateUrl,
+          shopPhotoUrl: uploadedFiles.shopPhotoUrl || req.user.sellerVerification?.shopPhotoUrl,
+          sellerId: sellerId || req.user.sellerVerification?.sellerId,
+          shopName: shopName || req.user.sellerVerification?.shopName,
+          shopLocation: shopLocation || req.user.sellerVerification?.shopLocation,
+          reviewNotes: reviewNotes || req.user.sellerVerification?.reviewNotes,
+          submittedAt: new Date(),
+          verifiedAt: null,
+          verifiedBy: null,
+        };
+      } else {
+        return res.status(403).json({ error: "Only farmers and fertilizer sellers can submit verification" });
+      }
+
+      await req.user.save();
+
+      res.json({ success: true, user: req.user.getProfile(), message: "Verification submitted successfully" });
+    } catch (err) {
+      res.status(500).json({ error: "Error submitting verification: " + err.message });
+    }
+  }
+);
 
 // @route   PUT /api/users/:id
 // @desc    Update user profile

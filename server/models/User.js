@@ -127,6 +127,51 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    farmerVerification: {
+      status: {
+        type: String,
+        enum: ["not_submitted", "pending", "more_information_required", "verified", "rejected", "suspended"],
+        default: "not_submitted",
+      },
+      identityDocumentUrl: String,
+      farmingProofUrl: String,
+      farmPhotoUrl: String,
+      farmerId: String,
+      farmLocation: {
+        latitude: Number,
+        longitude: Number,
+      },
+      submittedAt: Date,
+      verifiedAt: Date,
+      verifiedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      reviewNotes: String,
+    },
+    sellerVerification: {
+      status: {
+        type: String,
+        enum: ["not_submitted", "pending", "verified", "rejected", "suspended"],
+        default: "not_submitted",
+      },
+      identityDocumentUrl: String,
+      shopCertificateUrl: String,
+      shopPhotoUrl: String,
+      sellerId: String,
+      shopName: String,
+      shopLocation: {
+        latitude: Number,
+        longitude: Number,
+      },
+      submittedAt: Date,
+      verifiedAt: Date,
+      verifiedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      reviewNotes: String,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -149,9 +194,10 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    index: { location: "2dsphere" }, // For geospatial queries
   }
 );
+
+userSchema.index({ location: "2dsphere" });
 
 // Hash password before saving
 userSchema.pre("save", async function (next) {

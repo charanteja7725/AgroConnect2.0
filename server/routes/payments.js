@@ -143,6 +143,10 @@ router.get("/:orderId", protect, async (req, res) => {
 router.post("/webhook", async (req, res) => {
   const sig = req.headers["stripe-signature"];
 
+  if (!process.env.STRIPE_WEBHOOK_SECRET || !sig) {
+    return res.status(400).json({ error: "Stripe webhook endpoint not configured" });
+  }
+
   try {
     const event = stripe.webhooks.constructEvent(
       req.body,

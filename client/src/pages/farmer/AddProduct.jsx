@@ -1,50 +1,102 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { productAPI } from "../../services/api.js";
-import { useNotification } from "../../context/AppContext.jsx";
+import { productAPI, userAPI } from "../../services/api.js";
+import { useAuth, useNotification } from "../../context/AppContext.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
+import LocationService from "../../services/LocationService.js";
 import "./addproduct.css";
 
 const AddProduct = () => {
+  const { t } = useLanguage();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { addNotification } = useNotification();
   const [productName, setProductName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
   const [marketPrice, setMarketPrice] = useState("");
   const [location, setLocation] = useState("");
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const [description, setDescription] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState("not_submitted");
+  const [loadingVerification, setLoadingVerification] = useState(true);
+
+  useEffect(() => {
+    const loadVerification = async () => {
+      try {
+        const data = await userAPI.getUser(user?._id);
+        setVerificationStatus(data?.user?.farmerVerification?.status || "not_submitted");
+      } catch (err) {
+        setVerificationStatus("not_submitted");
+      } finally {
+        setLoadingVerification(false);
+      }
+    };
+
+    if (user?._id) {
+      loadVerification();
+    }
+  }, [user?._id]);
 
   const suggestedPrice =
     marketPrice && quantity ? (Number(marketPrice) * 0.95).toFixed(2) : "";
 
+  const handleUseCurrentLocation = async () => {
+    setLocationLoading(true);
+    setLocationError("");
+
+    try {
+      const position = await LocationService.getCurrentLocation();
+      setCurrentLocation(position);
+      const address = await LocationService.reverseGeocode(position.latitude, position.longitude);
+      setLocation(address?.display_name || LocationService.formatCoordinates(position.latitude, position.longitude));
+    } catch (error) {
+      setLocationError(error.message || "Unable to get current location");
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
   return (
     <div className="add-product-page">
       <div className="add-product-header">
-        <h2>Add New Product</h2>
-        <p>List your farm produce with AI-assisted pricing</p>
+        <h2>{t("addProductTitle")}</h2>
+        <p>{t("addProductDescription")}</p>
       </div>
 
       <div className="add-product-container">
         <div className="add-product-form-card">
+          {loadingVerification ? (
+            <div className="verification-banner">{t("checkingVerificationStatus")}</div>
+          ) : verificationStatus !== "verified" ? (
+            <div className="verification-banner warning">
+              {verificationStatus === "pending" && t("verificationStatusPendingReview")}
+              {verificationStatus === "more_information_required" && t("verificationStatusWaitingInfo")}
+              {verificationStatus === "not_submitted" && t("verificationStatusNotApproved")}
+              {t("cannotPublishUntilApproved")}
+            </div>
+          ) : null}
           <div className="form-group">
-            <label>Product Name</label>
+            <label>{t("productNameLabel")}</label>
             <input
               type="text"
-              placeholder="Enter product name"
+              placeholder={t("productNamePlaceholder")}
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
             />
           </div>
 
           <div className="form-group">
-            <label>Category</label>
+            <label>{t("categoryLabel")}</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
             >
-              <option value="">Select category</option>
+              <option value="">{t("selectCategory")}</option>
               <option value="vegetables">Vegetables</option>
               <option value="fruits">Fruits</option>
               <option value="grains">Grains</option>
@@ -75,17 +127,28 @@ const AddProduct = () => {
           </div>
 
           <div className="form-group">
-            <label>Location</label>
-            <input
-              type="text"
-              placeholder="Enter farm location"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-            />
+            <label>{t("locationLabel")}</label>
+            <div className="location-field-wrapper">
+              <input
+                type="text"
+                placeholder={t("enterLocationPlaceholder")}
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+              />
+              <button
+                type="button"
+                className="location-btn"
+                onClick={handleUseCurrentLocation}
+                disabled={locationLoading}
+              >
+                {locationLoading ? t("locating") : `${t("useCurrentLocation")}`}
+              </button>
+            </div>
+            {locationError && <p className="location-error">{locationError}</p>}
           </div>
 
           <div className="form-group">
-            <label>Upload Product Image</label>
+            <label>{t("uploadProductImage")}</label>
             <input
               type="file"
               accept="image/*"
@@ -94,9 +157,9 @@ const AddProduct = () => {
           </div>
 
           <div className="form-group">
-            <label>Description</label>
+            <label>{t("descriptionLabel")}</label>
             <textarea
-              placeholder="Write short product description..."
+              placeholder={t("descriptionPlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -123,10 +186,15 @@ const AddProduct = () => {
                   unit: "kg",
                   images: imageUrl ? [{ url: imageUrl, alt: productName }] : [],
                   address: location,
-                  location: {
-                    type: "Point",
-                    coordinates: [0, 0],
-                  },
+                  location: currentLocation
+                    ? {
+                        type: "Point",
+                        coordinates: [currentLocation.longitude, currentLocation.latitude],
+                      }
+                    : {
+                        type: "Point",
+                        coordinates: [0, 0],
+                      },
                 });
 
                 addNotification("Product added successfully", "success");
@@ -144,22 +212,19 @@ const AddProduct = () => {
                 setSubmitting(false);
               }
             }}
-            disabled={submitting}
+            disabled={submitting || verificationStatus !== "verified"}
           >
-            {submitting ? "Adding..." : "Add Product"}
+            {submitting ? t("adding") : verificationStatus === "verified" ? t("addProductButton") : t("verificationRequired")}
           </button>
         </div>
 
         <div className="ai-price-card">
-          <h3>AI Price Suggestion</h3>
-          <p>
-            Based on market trends, demand, and your location, the suggested
-            selling price is:
-          </p>
+            <h3>{t("aiPriceSuggestion")}</h3>
+            <p>{t("priceSuggestionDescription")}</p>
 
-          <div className="price-box">
-            {suggestedPrice ? `₹${suggestedPrice} / kg` : "Enter details first"}
-          </div>
+            <div className="price-box">
+              {suggestedPrice ? `₹${suggestedPrice} / kg` : t("enterDetailsFirst")}
+            </div>
 
           <div className="ai-note">
             <strong>How this is calculated:</strong>

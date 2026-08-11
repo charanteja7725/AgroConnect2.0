@@ -75,12 +75,8 @@ const productSchema = new mongoose.Schema(
         default: "Point",
       },
       coordinates: {
-        type: [Number], // [longitude, latitude]
-        required: true,
-      },
-      address: {
-        type: String,
-        default: "",
+        type: [Number],
+        required:true // [longitude, latitude]
       },
     },
     address: String,
@@ -179,6 +175,7 @@ const productSchema = new mongoose.Schema(
 productSchema.index({ location: "2dsphere" });
 
 // Index for filtering and searching
+productSchema.index({ location: "2dsphere" });
 productSchema.index({ seller: 1, category: 1, isActive: 1 });
 productSchema.index({ price: 1, rating: 1 });
 

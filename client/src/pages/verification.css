@@ -1,0 +1,153 @@
+.verification-page {
+  min-height: 100vh;
+  background: #f3f4f6;
+  padding: 32px;
+  font-family: "Inter", sans-serif;
+}
+
+.verification-card {
+  max-width: 900px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 18px;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.verification-header {
+  padding: 32px;
+  background: #f8fafc;
+}
+
+.verification-header h2 {
+  margin: 0 0 12px;
+  color: #111827;
+}
+
+.verification-header p {
+  margin: 0 0 18px;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.verification-status {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.verification-status.not_submitted {
+  color: #6b7280;
+}
+
+.verification-status.pending {
+  color: #d97706;
+}
+
+.verification-status.more_information_required {
+  color: #b45309;
+}
+
+.verification-status.verified {
+  color: #15803d;
+}
+
+.verification-status.rejected {
+  color: #b91c1c;
+}
+
+.verification-form {
+  padding: 32px;
+  display: grid;
+  gap: 20px;
+}
+
+.form-group {
+  display: grid;
+  gap: 10px;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: #111827;
+}
+
+.form-group input,
+.form-group textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 14px;
+  color: #111827;
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.location-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.location-btn {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 14px 18px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.form-error {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.form-success {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.verification-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.cancel-btn,
+.submit-btn {
+  border-radius: 12px;
+  padding: 14px 22px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cancel-btn {
+  background: #e5e7eb;
+  border: none;
+  color: #111827;
+}
+
+.submit-btn {
+  background: #16a34a;
+  color: white;
+  border: none;
+}
+
+@media (max-width: 880px) {
+  .location-grid {
+    grid-template-columns: 1fr;
+  }
+}

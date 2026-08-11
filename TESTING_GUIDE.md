@@ -7,7 +7,7 @@
 #### 1. User Registration
 **Endpoint:** `POST /api/auth/register`
 ```bash
-curl -X POST http://localhost:5001/api/auth/register \
+curl -X POST http://localhost:5003/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "firstName": "John",
@@ -29,7 +29,7 @@ curl -X POST http://localhost:5001/api/auth/register \
 #### 2. User Login
 **Endpoint:** `POST /api/auth/login`
 ```bash
-curl -X POST http://localhost:5001/api/auth/login \
+curl -X POST http://localhost:5003/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "john@farm.com",
@@ -58,18 +58,18 @@ curl -X POST http://localhost:5001/api/auth/login \
 #### 1. Get All Products
 **Endpoint:** `GET /api/products`
 ```bash
-curl http://localhost:5001/api/products
+curl http://localhost:5003/api/products
 ```
 
 **With Filters:**
 ```bash
-curl "http://localhost:5001/api/products?category=vegetables&maxPrice=500"
+curl "http://localhost:5003/api/products?category=vegetables&maxPrice=500"
 ```
 
 #### 2. Create Product (Farmer)
 **Endpoint:** `POST /api/products`
 ```bash
-curl -X POST http://localhost:5001/api/products \
+curl -X POST http://localhost:5003/api/products \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -92,14 +92,14 @@ curl -X POST http://localhost:5001/api/products \
 #### 1. Get Cart
 **Endpoint:** `GET /api/cart`
 ```bash
-curl http://localhost:5001/api/cart \
+curl http://localhost:5003/api/cart \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 #### 2. Add to Cart
 **Endpoint:** `POST /api/cart/add`
 ```bash
-curl -X POST http://localhost:5001/api/cart/add \
+curl -X POST http://localhost:5003/api/cart/add \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -111,7 +111,7 @@ curl -X POST http://localhost:5001/api/cart/add \
 #### 3. Update Cart Item
 **Endpoint:** `PUT /api/cart/update/:itemId`
 ```bash
-curl -X PUT http://localhost:5001/api/cart/update/60d5ec49c1234a1b2c3d4e5f \
+curl -X PUT http://localhost:5003/api/cart/update/60d5ec49c1234a1b2c3d4e5f \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -122,7 +122,7 @@ curl -X PUT http://localhost:5001/api/cart/update/60d5ec49c1234a1b2c3d4e5f \
 #### 4. Remove from Cart
 **Endpoint:** `DELETE /api/cart/remove/:itemId`
 ```bash
-curl -X DELETE http://localhost:5001/api/cart/remove/60d5ec49c1234a1b2c3d4e5f \
+curl -X DELETE http://localhost:5003/api/cart/remove/60d5ec49c1234a1b2c3d4e5f \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -133,7 +133,7 @@ curl -X DELETE http://localhost:5001/api/cart/remove/60d5ec49c1234a1b2c3d4e5f \
 #### 1. Create Order
 **Endpoint:** `POST /api/orders/create`
 ```bash
-curl -X POST http://localhost:5001/api/orders/create \
+curl -X POST http://localhost:5003/api/orders/create \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -153,14 +153,14 @@ curl -X POST http://localhost:5001/api/orders/create \
 #### 2. Get Orders
 **Endpoint:** `GET /api/orders`
 ```bash
-curl http://localhost:5001/api/orders \
+curl http://localhost:5003/api/orders \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 #### 3. Update Order Status
 **Endpoint:** `PUT /api/orders/:id/status`
 ```bash
-curl -X PUT http://localhost:5001/api/orders/60d5ec49c1234a1b2c3d4e5f/status \
+curl -X PUT http://localhost:5003/api/orders/60d5ec49c1234a1b2c3d4e5f/status \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -176,12 +176,12 @@ curl -X PUT http://localhost:5001/api/orders/60d5ec49c1234a1b2c3d4e5f/status \
 #### 1. Create Payment Intent (Stripe)
 **Endpoint:** `POST /api/payments/create-intent`
 ```bash
-curl -X POST http://localhost:5001/api/payments/create-intent \
+curl -X POST http://localhost:5003/api/payments/create-intent \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "orderId": "60d5ec49c1234a1b2c3d4e5f",
-    "amount": 5000
+    "amount": 
   }'
 ```
 
@@ -192,14 +192,14 @@ curl -X POST http://localhost:5001/api/payments/create-intent \
 #### 1. Get Deliveries
 **Endpoint:** `GET /api/delivery`
 ```bash
-curl http://localhost:5001/api/delivery \
+curl http://localhost:5003/api/delivery \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 #### 2. Update Delivery Status
 **Endpoint:** `PUT /api/delivery/:id/status`
 ```bash
-curl -X PUT http://localhost:5001/api/delivery/60d5ec49c1234a1b2c3d4e5f/status \
+curl -X PUT http://localhost:5003/api/delivery/60d5ec49c1234a1b2c3d4e5f/status \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
@@ -385,7 +385,7 @@ describe('Authentication API', () => {
 
 ### Server Health Check
 ```bash
-curl http://localhost:5001/api/health
+curl http://localhost:5003/api/health
 ```
 
 Expected response:

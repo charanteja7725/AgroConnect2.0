@@ -244,8 +244,8 @@ router.post("/webhook", async (req, res) => {
 
   const sig = req.headers["stripe-signature"];
 
-  if (!sig) {
-    return res.status(400).json({ error: "Missing stripe signature" });
+  if (!process.env.STRIPE_WEBHOOK_SECRET || !sig) {
+    return res.status(400).json({ error: "Stripe webhook endpoint not configured" });
   }
 
   try {

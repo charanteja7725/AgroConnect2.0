@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cartAPI, orderAPI, paymentAPI } from "../../services/api.js";
-import { LocationService } from "../../services/LocationService.js";
-import { useAuth, useNotification } from "../../context/AppHooks.js";
+import { cartAPI, orderAPI } from "../../services/api.js";
+import { useLanguage } from "../../context/LanguageContext.jsx";
+import { useNotification } from "../../context/AppContext.jsx";
 import "./cart.css";
 
 const Cart = () => {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addNotification } = useNotification();
@@ -216,14 +217,14 @@ const Cart = () => {
   return (
     <div className="cart-page">
       <div className="cart-topbar">
-        <div className="cart-brand" onClick={() => navigate("/buyer")}>🌱 AgroConnect</div>
+        <div className="cart-brand" onClick={() => navigate("/buyer")}>🌱 {t("appName")}</div>
       </div>
 
       <div className="cart-container">
         <div className="cart-items-section">
-          <h2>Your Cart</h2>
+          <h2>{t("cartTitle")}</h2>
           {loading ? (
-            <p>Loading cart...</p>
+            <p>{t("loadingCart")}</p>
           ) : error ? (
             <p className="error-state">{error}</p>
           ) : cart?.items?.length ? (
@@ -254,76 +255,72 @@ const Cart = () => {
             ))
           ) : (
             <div className="empty-cart">
-              <p>Your cart is empty.</p>
-              <button onClick={() => navigate("/buyer")}>Continue Shopping</button>
+              <p>{t("cartEmpty")}</p>
+              <button onClick={() => navigate("/buyer")}>{t("continueShoppingBtn")}</button>
             </div>
           )}
         </div>
 
         <div className="cart-summary">
-          <h3>Order Summary</h3>
+          <h3>{t("orderSummary")}</h3>
           <div className="summary-row">
-            <span>Items</span>
+            <span>{t("items")}</span>
             <span>{cart?.items?.length || 0}</span>
           </div>
           <div className="summary-row">
-            <span>Subtotal</span>
+            <span>{t("subtotal")}</span>
             <span>₹{total}</span>
           </div>
           <div className="summary-row">
-            <span>Tax (5%)</span>
+            <span>{t("tax")}</span>
             <span>₹{tax}</span>
           </div>
           <div className="summary-row total-row">
-            <span>Total</span>
+            <span>{t("total")}</span>
             <span>₹{totalAmount}</span>
           </div>
 
           <div className="checkout-section">
-            <h4>Delivery Address</h4>
-            <div className="location-toolbar">
-              <button className="location-btn" onClick={handleUseCurrentLocation}>📍 Use My Current Location</button>
-              {deliveryLocationNote && <span className="location-note">{deliveryLocationNote}</span>}
-            </div>
+            <h4>{t("deliveryAddress")}</h4>
             <input
               type="text"
-              placeholder="Full Name"
+              placeholder={t("fullName")}
               value={deliveryAddress.fullName}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, fullName: e.target.value })}
             />
             <input
               type="text"
-              placeholder="Phone"
+              placeholder={t("phoneLabel")}
               value={deliveryAddress.phone}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, phone: e.target.value })}
             />
             <input
               type="text"
-              placeholder="Street"
+              placeholder={t("streetLabel")}
               value={deliveryAddress.street}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, street: e.target.value })}
             />
             <input
               type="text"
-              placeholder="City"
+              placeholder={t("cityLabel")}
               value={deliveryAddress.city}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, city: e.target.value })}
             />
             <input
               type="text"
-              placeholder="State"
+              placeholder={t("stateLabel")}
               value={deliveryAddress.state}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, state: e.target.value })}
             />
             <input
               type="text"
-              placeholder="Zip Code"
+              placeholder={t("zipCodeLabel")}
               value={deliveryAddress.zipCode}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, zipCode: e.target.value })}
             />
             <input
               type="text"
-              placeholder="Landmark"
+              placeholder={t("landmarkLabel")}
               value={deliveryAddress.landmark}
               onChange={(e) => setDeliveryAddress({ ...deliveryAddress, landmark: e.target.value })}
             />
@@ -338,9 +335,9 @@ const Cart = () => {
             {checkoutSuccess && <p className="success-state">{checkoutSuccess}</p>}
 
             <button className="checkout-btn" onClick={handleCheckout} disabled={!cart?.items?.length || loading}>
-              {loading ? "Processing..." : "Proceed to Checkout"}
+              {loading ? t("processing") : t("checkoutBtn")}
             </button>
-            <button className="back-btn" onClick={() => navigate("/buyer")}>Continue Shopping</button>
+            <button className="back-btn" onClick={() => navigate("/buyer")}>{t("continueShoppingBtn")}</button>
           </div>
         </div>
       </div>

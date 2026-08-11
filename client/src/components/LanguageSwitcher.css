@@ -1,0 +1,36 @@
+.language-switcher {
+  position: relative;
+  display: inline-block;
+}
+
+.language-button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.language-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: white;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  border-radius: 6px;
+  margin-top: 6px;
+  z-index: 50;
+}
+
+.language-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+.language-option.active {
+  font-weight: 600;
+}

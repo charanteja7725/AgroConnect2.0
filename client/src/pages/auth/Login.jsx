@@ -1,10 +1,12 @@
 ﻿import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AppHooks.js";
+import { useAuth } from "../../context/AppContext.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import { authAPI } from "../../services/api.js";
 import "./login.css";
 
 function Login() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { login, setLoading, loading } = useAuth();
   const [email, setEmail] = useState("");
@@ -46,34 +48,34 @@ function Login() {
   return (
     <div className="login-container">
       <div className="login-left">
-        <h1>AgroConnect 🌾</h1>
-        <p>Connecting Farmers & Buyers Directly</p>
+        <h1>{t("appName")} 🌾</h1>
+        <p>{t("heroDescription")}</p>
       </div>
 
       <div className="login-right">
-        <h2>Login</h2>
+        <h2>{t("login")}</h2>
 
         <input
           type="email"
-          placeholder="Email"
+          placeholder={t("email")}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
           type="password"
-          placeholder="Password"
+          placeholder={t("password")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
 
         <button className="login-btn" onClick={handleLogin} disabled={loading}>
-          {loading ? "Logging in..." : "Login"}
+          {loading ? t("loggingIn") : t("loginButton")}
         </button>
 
         {error && <p className="form-error">{error}</p>}
 
         <p className="signup-text">
-          Don't have an account? <span onClick={() => navigate("/role")}>Select your role</span>
+          {t("alreadyHaveAccount")} <span onClick={() => navigate("/role")}>{t("loginHere")}</span>
         </p>
       </div>
     </div>

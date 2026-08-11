@@ -36,7 +36,7 @@ export const LocationService = {
       (error) => {
         onError(error);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
 
     return watchId;

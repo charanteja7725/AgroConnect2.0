@@ -6,7 +6,6 @@ const notificationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
     title: {
       type: String,
@@ -18,42 +17,31 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["order", "delivery", "payment", "review", "system", "message"],
-      default: "system",
+      enum: ["info", "order", "system", "alert"],
+      default: "info",
     },
     relatedId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: function() {
-        if (this.type === "order") return "Order";
-        if (this.type === "delivery") return "Delivery";
-        if (this.type === "payment") return "Payment";
-        return undefined;
-      },
+      refPath: "relatedModel",
+    },
+    relatedModel: {
+      type: String,
+      enum: ["Order", "Product", "User"],
     },
     read: {
       type: Boolean,
       default: false,
-      index: true,
     },
-    readAt: {
-      type: Date,
-      default: null,
-    },
-    createdAt: {
+    timestamp: {
       type: Date,
       default: Date.now,
-      index: true,
     },
-    actionUrl: {
-      type: String,
-      default: null,
+    metadata: {
+      device: String,
+      channel: String,
     },
   },
   { timestamps: true }
 );
-
-// Index for efficient querying
-notificationSchema.index({ user: 1, createdAt: -1 });
-notificationSchema.index({ user: 1, read: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Notification", notificationSchema);

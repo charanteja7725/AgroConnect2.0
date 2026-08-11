@@ -1,198 +1,102 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useState } from "react";
 import "./farmerdashboard.css";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AppHooks.js";
-import { productAPI, orderAPI, pricingAPI } from "../../services/api";
-
+import { useAuth } from "../../context/AppContext.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
+import { orderAPI, productAPI, userAPI } from "../../services/api.js";
 const FarmerDashboard = () => {
+  const { t } = useLanguage();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { logout, user } = useAuth();
   const [activeSection, setActiveSection] = useState("dashboard");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  // Dashboard data
-  const [stats, setStats] = useState({
-    totalProducts: 0,
-    totalOrders: 0,
-    totalEarnings: 0,
-    pendingOrders: 0,
-  });
-
+  const [verificationStatus, setVerificationStatus] = useState("not_submitted");
+  const [profile, setProfile] = useState(user);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [priceEstimates, setPriceEstimates] = useState({});
+  const [loadingDashboard, setLoadingDashboard] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
 
-  const fetchFarmerProducts = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await productAPI.getSellerProducts(user._id);
-      setProducts(response.products || []);
-      setStats((prev) => ({
-        ...prev,
-        totalProducts: response.products?.length || 0,
-      }));
-    } catch (err) {
-      console.error("Error fetching products:", err);
-      setError("Failed to load products");
-    } finally {
-      setLoading(false);
-    }
-  }, [user._id]);
-
-  const fetchFarmerOrders = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await orderAPI.getOrders();
-      const farmerOrders =
-        response.orders?.filter((order) =>
-          order.items?.some((item) => item.seller?.toString() === user._id)
-        ) || [];
-      setOrders(farmerOrders);
-      setStats((prev) => ({
-        ...prev,
-        totalOrders: farmerOrders.length,
-        pendingOrders: farmerOrders.filter((o) => o.status === "pending").length,
-      }));
-    } catch (err) {
-      console.error("Error fetching orders:", err);
-      setError("Failed to load orders");
-    } finally {
-      setLoading(false);
-    }
-  }, [user._id]);
-
-  // Fetch farmer's products
   useEffect(() => {
-    if (activeSection === "my-products" || activeSection === "dashboard") {
-      fetchFarmerProducts();
-    }
-  }, [activeSection, fetchFarmerProducts]);
+    const loadDashboardData = async () => {
+      if (!user?._id) return;
 
-  // Fetch farmer's orders
-  useEffect(() => {
-    if (activeSection === "orders") {
-      fetchFarmerOrders();
-    }
-  }, [activeSection, fetchFarmerOrders]);
+      setLoadingDashboard(true);
+      setDashboardError("");
 
-  const handleDeleteProduct = async (productId) => {
-    if (!window.confirm("Are you sure you want to delete this product?")) return;
+      try {
+        const [productResponse, orderResponse, profileResponse] = await Promise.all([
+          productAPI.getSellerProducts(user._id),
+          orderAPI.getOrders(),
+          userAPI.getUser(user._id),
+        ]);
 
-    try {
-      await productAPI.deleteProduct(productId);
-      setProducts(products.filter(p => p._id !== productId));
-      alert("Product deleted successfully");
-    } catch (err) {
-      console.error("Error deleting product:", err);
-      setError("Failed to delete product");
-    }
-  };
+        setProducts(productResponse.products || []);
+        setOrders(orderResponse.orders || []);
+        setProfile(profileResponse.user || user);
+        setVerificationStatus(profileResponse.user?.farmerVerification?.status || "not_submitted");
+      } catch (err) {
+        setDashboardError("Failed to load farmer dashboard. Please refresh the page.");
+        console.error(err);
+      } finally {
+        setLoadingDashboard(false);
+      }
+    };
 
-  const handleUpdateOrderStatus = async (orderId, newStatus) => {
-    try {
-      await orderAPI.updateOrderStatus(orderId, newStatus, "");
-      setOrders(orders.map((o) =>
-        o._id === orderId ? { ...o, status: newStatus } : o
-      ));
-      alert(`Order ${newStatus}`);
-    } catch (err) {
-      console.error("Error updating order status:", err);
-      setError("Failed to update order status");
-    }
-  };
-
-  const handleGetPriceSuggestion = async (product) => {
-    try {
-      const response = await pricingAPI.suggestPrice(
-        product.type,
-        product.category,
-        product.quantity,
-        product.price
-      );
-      setPriceEstimates({
-        ...priceEstimates,
-        [product._id]: response.suggestedPrice || product.price,
-      });
-    } catch (err) {
-      console.error("Error getting price suggestion:", err);
-    }
-  };
+    loadDashboardData();
+  }, [user?._id, user]);
 
   const sectionTitle = {
-    dashboard: "Welcome back, Farmer 👋",
-    "my-products": "My Products",
-    orders: "Your Orders",
-    profile: "Your Profile",
+    dashboard: t("farmerWelcome"),
+    "my-products": t("myProducts"),
+    orders: t("orders"),
+    "price-suggestions": t("priceSuggestions"),
+    payments: t("payments"),
+    profile: t("profile"),
   };
 
   const sectionDescription = {
-    dashboard: "Manage your products, monitor orders, and track earnings.",
-    "my-products": "Review your product listings and keep inventory up to date.",
-    orders: "Track recent orders and confirm/reject deliveries.",
-    profile: "Update your profile details and contact information.",
+    dashboard: t("manageYourProducts"),
+    "my-products": t("noProductsYet"),
+    orders: t("yourOrders"),
+    "price-suggestions": t("priceSuggestions"),
+    payments: t("revenueTitle"),
+    profile: t("profile"),
   };
+
+  const totalProducts = products.length;
+  const activeOrders = orders.filter((order) => !["delivered", "cancelled"].includes(order.status));
+  const completedOrders = orders.filter((order) => order.status === "delivered");
+  const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || order.totalPrice || 0), 0);
+  const recentProducts = products.slice(0, 3);
+  const recentOrders = orders.slice(0, 3);
 
   const renderSectionContent = () => {
     switch (activeSection) {
       case "my-products":
         return (
           <div className="dashboard-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-              <h3>My Products</h3>
-              <button
-                className="section-action"
-                onClick={() => navigate("/farmer/add-product")}
-              >
-                + Add New Product
-              </button>
-            </div>
-
-            {loading ? (
-              <p>Loading products...</p>
-            ) : products.length === 0 ? (
-              <p className="placeholder-text">No products listed yet. Start by adding a new product!</p>
-            ) : (
-              <div className="products-grid">
-                {products.map(product => (
-                  <div key={product._id} className="product-card">
-                    <div className="product-image">
-                      {product.images?.[0]?.url ? (
-                        <img src={product.images[0].url} alt={product.name} />
-                      ) : (
-                        <div className="no-image">No Image</div>
-                      )}
-                    </div>
-                    <h4>{product.name}</h4>
-                    <p>₹{product.price} / {product.unit}</p>
-                    <p className="stock">Stock: {product.quantity} {product.unit}</p>
-                    <div className="product-actions">
-                      <button
-                        className="btn-small"
-                        onClick={() => handleGetPriceSuggestion(product)}
-                      >
-                        💡 AI Price
-                      </button>
-                      {priceEstimates[product._id] && (
-                        <p className="price-estimate">
-                          Suggested: ₹{priceEstimates[product._id]}
-                        </p>
-                      )}
-                      <button
-                        className="btn-edit"
-                        onClick={() => navigate(`/farmer/edit-product/${product._id}`)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="btn-delete"
-                        onClick={() => handleDeleteProduct(product._id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
+            <h3>{t("myProducts")}</h3>
+            {products.length ? (
+              <div className="product-table">
+                <div className="product-row header">
+                  <span>{t("product")}</span>
+                  <span>{t("category")}</span>
+                  <span>{t("price")}</span>
+                  <span>{t("quantity")}</span>
+                </div>
+                {products.map((product) => (
+                  <div className="product-row" key={product._id || product.id}>
+                    <span>{product.name}</span>
+                    <span>{product.category || product.type}</span>
+                    <span>₹{product.price}</span>
+                    <span>{product.quantity} {product.unit || "kg"}</span>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>{t("noProductsYet")}</p>
+                <button className="section-action" onClick={() => navigate("/farmer/add-product")}>{t("addYourFirstProduct")}</button>
               </div>
             )}
           </div>
@@ -201,47 +105,70 @@ const FarmerDashboard = () => {
       case "orders":
         return (
           <div className="dashboard-section">
-            <h3>Incoming Orders</h3>
-            {loading ? (
-              <p>Loading orders...</p>
-            ) : orders.length === 0 ? (
-              <p className="placeholder-text">No orders yet</p>
-            ) : (
-              <div className="orders-table">
-                {orders.map(order => (
-                  <div key={order._id} className="order-card">
-                    <div className="order-header">
-                      <h4>Order #{order._id.substring(0, 8)}</h4>
-                      <span className={`status status-${order.status}`}>{order.status}</span>
-                    </div>
-                    <p>Buyer: {order.buyer?.firstName} {order.buyer?.lastName}</p>
-                    <p>Total Amount: ₹{order.totalAmount}</p>
-                    <p>Delivery Address: {order.deliveryAddress}</p>
-                    <div className="items-list">
-                      {order.items?.map((item, idx) => (
-                        <p key={idx}>
-                          • {item.productName} x{item.quantity} = ₹{item.totalPrice}
-                        </p>
-                      ))}
-                    </div>
-                    {order.status === "pending" && (
-                      <div className="order-actions">
-                        <button
-                          className="btn-confirm"
-                          onClick={() => handleUpdateOrderStatus(order._id, "confirmed")}
-                        >
-                          Confirm Order
-                        </button>
-                        <button
-                          className="btn-reject"
-                          onClick={() => handleUpdateOrderStatus(order._id, "cancelled")}
-                        >
-                          Reject Order
-                        </button>
-                      </div>
-                    )}
+            <h3>{t("orders")}</h3>
+            {orders.length ? (
+              <>
+                <div className="order-summary-card">
+                  <p>{t("pendingOrders")}: {activeOrders.length}</p>
+                  <p>{t("completed")}: {completedOrders.length}</p>
+                </div>
+                <div className="product-table">
+                  <div className="product-row header">
+                    <span>{t("orderId")}</span>
+                    <span>{t("buyer")}</span>
+                    <span>{t("total")}</span>
+                    <span>{t("status")}</span>
                   </div>
-                ))}
+                  {recentOrders.map((order) => (
+                    <div className="product-row" key={order._id || order.id}>
+                      <span>#{order._id?.slice(-6) || order.id}</span>
+                      <span>{order.buyer?.firstName} {order.buyer?.lastName}</span>
+                      <span>₹{order.totalAmount || order.totalPrice || 0}</span>
+                      <span>{order.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">
+                <p>{t("noOrdersYet")}</p>
+                <p>{t("listProductsHint")}</p>
+              </div>
+            )}
+          </div>
+        );
+      case "price-suggestions":
+        return (
+          <div className="dashboard-section">
+            <h3>{t("priceSuggestions")}</h3>
+            {products.length ? (
+              <div className="suggestion-box">
+                <p>
+                  {t("priceSuggestionDescription")} ₹{Math.round(totalRevenue / Math.max(products.length, 1))}.
+                </p>
+                <p>
+                  {t("priceSuggestionHint")}
+                </p>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>{t("addProductsForPriceSuggestions")}</p>
+              </div>
+            )}
+          </div>
+        );
+      case "payments":
+        return (
+          <div className="dashboard-section">
+            <h3>{t("payments")}</h3>
+            <div className="payment-summary-card">
+              <p>{t("totalRevenue")}: ₹{totalRevenue}</p>
+              <p>{t("ordersReceived")}: {orders.length}</p>
+            </div>
+            {orders.length === 0 && (
+              <div className="empty-state">
+                <p>{t("noSalesYet")}</p>
+                <p>{t("listProductsHintShort")}</p>
               </div>
             )}
           </div>
@@ -250,23 +177,14 @@ const FarmerDashboard = () => {
       case "profile":
         return (
           <div className="dashboard-section">
-            <h3>Your Profile</h3>
-            {user && (
-              <div className="profile-card">
-                <p><strong>Name:</strong> {user.firstName} {user.lastName}</p>
-                <p><strong>Email:</strong> {user.email}</p>
-                <p><strong>Phone:</strong> {user.phone}</p>
-                <p><strong>Role:</strong> {user.role}</p>
-                <p><strong>Total Earnings:</strong> ₹{user.totalEarnings || 0}</p>
-                <p><strong>Total Orders:</strong> {user.totalOrders || 0}</p>
-                <button
-                  className="section-action"
-                  onClick={() => navigate("/profile")}
-                >
-                  Edit Profile
-                </button>
-              </div>
-            )}
+            <h3>{t("profile")}</h3>
+            <div className="profile-card">
+              <p>{t("fullName")}: {profile?.firstName} {profile?.lastName}</p>
+              <p>{t("email")}: {profile?.email}</p>
+              <p>{t("phoneLabel")}: {profile?.phone}</p>
+              <p>{t("role")}: {profile?.role}</p>
+              {profile?.address?.city && <p>{t("location")}: {profile.address.city}, {profile.address.state}</p>}
+            </div>
           </div>
         );
 
@@ -275,73 +193,114 @@ const FarmerDashboard = () => {
           <>
             <div className="summary-grid">
               <div className="summary-card">
-                <h4>Total Products</h4>
-                <p className="big-number">{stats.totalProducts}</p>
+                <h4>{t("totalProducts")}</h4>
+                <p>{totalProducts}</p>
               </div>
               <div className="summary-card">
-                <h4>Orders Received</h4>
-                <p className="big-number">{stats.totalOrders}</p>
+                <h4>{t("activeOrders")}</h4>
+                <p>{activeOrders.length}</p>
               </div>
               <div className="summary-card">
-                <h4>Total Earnings</h4>
-                <p className="big-number">₹{user?.totalEarnings || 0}</p>
+                <h4>{t("revenue")}</h4>
+                <p>₹{totalRevenue}</p>
               </div>
               <div className="summary-card">
-                <h4>Pending Orders</h4>
-                <p className="big-number">{stats.pendingOrders}</p>
+                <h4>{t("pendingOrders")}</h4>
+                <p>{orders.length - completedOrders.length}</p>
               </div>
             </div>
 
             <div className="dashboard-section">
-              <h3>Quick Actions</h3>
+              <h3>{t("verificationStatus")}</h3>
+              <p className="placeholder-text">
+                {t("currentStatus")} <strong>{verificationStatus.replace(/_/g, " ")}</strong>
+              </p>
+              <p className="placeholder-text">
+                {verificationStatus === "verified"
+                  ? t("verificationSaved")
+                  : t("submitVerification")}
+              </p>
+              {verificationStatus !== "verified" && (
+                <button className="section-action" onClick={() => navigate("/verification")}>{t("submitVerification")}</button>
+              )}
+            </div>
+
+            <div className="dashboard-section">
+              <h3>{t("quickActions")}</h3>
+
               <div className="action-grid">
                 <div className="action-card">
-                  <h4>Add New Product</h4>
-                  <p>List fresh produce with AI price suggestion</p>
-                  <button onClick={() => navigate("/farmer/add-product")}>
-                    Add Product
-                  </button>
+                  <h4>{t("addNewProduct")}</h4>
+                  <p>{t("addProductDescription")}</p>
+                  <button onClick={() => navigate("/farmer/add-product")}>{t("addProductButton")}</button>
                 </div>
                 <div className="action-card">
-                  <h4>View Orders</h4>
-                  <p>Track customer orders and confirmations</p>
-                  <button onClick={() => setActiveSection("orders")}>
-                    Check Orders
-                  </button>
+                  <h4>{t("buyFertilizers")}</h4>
+                  <p>{t("buyFertilizersDesc")}</p>
+                  <button onClick={() => navigate("/fertilizer")}>{t("openMarket")}</button>
                 </div>
+
                 <div className="action-card">
-                  <h4>Buy Fertilizers</h4>
-                  <p>Browse fertilizers from nearby sellers</p>
-                  <button onClick={() => navigate("/fertilizer")}>
-                    Open Market
-                  </button>
+                  <h4>{t("viewOrders")}</h4>
+                  <p>{t("viewOrdersHint")}</p>
+                  <button onClick={() => setActiveSection("orders")}>{t("checkOrders")}</button>
                 </div>
               </div>
             </div>
 
-            {products.length > 0 && (
-              <div className="dashboard-section">
-                <h3>Recent Products</h3>
+            <div className="dashboard-section">
+              <h3>{t("recentProducts")}</h3>
+              {recentProducts.length ? (
                 <div className="product-table">
                   <div className="product-row header">
-                    <span>Product</span>
-                    <span>Quantity</span>
-                    <span>Price</span>
-                    <span>Status</span>
+                    <span>{t("product")}</span>
+                    <span>{t("quantity")}</span>
+                    <span>{t("price")}</span>
+                    <span>{t("status")}</span>
                   </div>
-                  {products.slice(0, 5).map(product => (
-                    <div key={product._id} className="product-row">
+                  {recentProducts.map((product) => (
+                    <div className="product-row" key={product._id || product.id}>
                       <span>{product.name}</span>
-                      <span>{product.quantity} {product.unit}</span>
-                      <span>₹{product.price}</span>
-                      <span className={`status ${product.isActive ? "active-status" : "inactive-status"}`}>
-                        {product.isActive ? "Active" : "Inactive"}
-                      </span>
+                      <span>{product.quantity} {product.unit || "kg"}</span>
+                      <span>₹{product.price}/{product.unit || "kg"}</span>
+                      <span className={`status active-status ${product.isActive ? 'active' : 'inactive'}`}>
+                  {product.isActive ? t("active") : t("inactive")}
+                </span>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="empty-state">
+                  <p>{t("noProductsAddedYet")}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="dashboard-section">
+              <h3>{t("recentOrders")}</h3>
+              {recentOrders.length ? (
+                <div className="product-table">
+                  <div className="product-row header">
+                    <span>{t("order")}</span>
+                    <span>{t("buyer")}</span>
+                    <span>{t("total")}</span>
+                    <span>{t("status")}</span>
+                  </div>
+                  {recentOrders.map((order) => (
+                    <div className="product-row" key={order._id || order.id}>
+                      <span>#{order._id?.slice(-6) || order.id}</span>
+                      <span>{order.buyer?.firstName} {order.buyer?.lastName}</span>
+                      <span>₹{order.totalAmount || order.totalPrice || 0}</span>
+                      <span>{order.status}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <p>{t("noOrdersHaveBeenPlacedYet")}</p>
+                </div>
+              )}
+            </div>
           </>
         );
     }
@@ -351,53 +310,29 @@ const FarmerDashboard = () => {
     <div className="farmer-dashboard-page">
       {/* Topbar */}
       <div className="farmer-topbar">
-        <div className="farmer-brand">🌱 AgroConnect</div>
+        <div className="farmer-brand">🌱 {t("appName")}</div>
+
         <div className="farmer-topbar-right">
-          <button className="lang-btn">English ▼</button>
-          <button
-            className="logout-btn"
-            onClick={() => {
-              logout();
-              navigate("/login");
-            }}
-          >
-            Logout
+          <LanguageSwitcher />
+          <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
+            {t("logout")}
           </button>
-          <div className="profile-circle">{user?.firstName?.[0]}</div>
         </div>
       </div>
 
       <div className="farmer-layout">
         {/* Sidebar */}
         <div className="farmer-sidebar">
-          <h3 className="sidebar-title">Farmer Panel</h3>
-          <div
-            className={`sidebar-item ${activeSection === "dashboard" ? "active" : ""}`}
-            onClick={() => setActiveSection("dashboard")}
-          >
-            Dashboard
-          </div>
-          <div
-            className={`sidebar-item ${activeSection === "my-products" ? "active" : ""}`}
-            onClick={() => setActiveSection("my-products")}
-          >
-            My Products
-          </div>
-          <div
-            className={`sidebar-item ${activeSection === "orders" ? "active" : ""}`}
-            onClick={() => setActiveSection("orders")}
-          >
-            Orders
-          </div>
-          <div className="sidebar-item" onClick={() => navigate("/buyer")}>
-            Buy Fertilizers
-          </div>
-          <div
-            className={`sidebar-item ${activeSection === "profile" ? "active" : ""}`}
-            onClick={() => setActiveSection("profile")}
-          >
-            Profile
-          </div>
+          <h3 className="sidebar-title">{t("farmerWelcome")}</h3>
+
+          <div className={`sidebar-item ${activeSection === "dashboard" ? "active" : ""}`} onClick={() => setActiveSection("dashboard")}>{t("dashboard")}</div>
+          <div className={`sidebar-item ${activeSection === "add-product" ? "active" : ""}`} onClick={() => navigate("/farmer/add-product")}>{t("addNewProduct")}</div>
+          <div className={`sidebar-item ${activeSection === "my-products" ? "active" : ""}`} onClick={() => setActiveSection("my-products")}>{t("myProducts")}</div>
+          <div className={`sidebar-item ${activeSection === "orders" ? "active" : ""}`} onClick={() => setActiveSection("orders")}>{t("orders")}</div>
+          <div className="sidebar-item" onClick={() => navigate("/fertilizer")}>{t("buyFertilizers")}</div>
+          <div className={`sidebar-item ${activeSection === "price-suggestions" ? "active" : ""}`} onClick={() => setActiveSection("price-suggestions")}>{t("priceSuggestions")}</div>
+          <div className={`sidebar-item ${activeSection === "payments" ? "active" : ""}`} onClick={() => setActiveSection("payments")}>{t("payments")}</div>
+          <div className={`sidebar-item ${activeSection === "profile" ? "active" : ""}`} onClick={() => setActiveSection("profile")}>{t("profile")}</div>
         </div>
 
         {/* Main Content */}
@@ -407,7 +342,13 @@ const FarmerDashboard = () => {
             <h2>{sectionTitle[activeSection]}</h2>
             <p>{sectionDescription[activeSection]}</p>
           </div>
-          {renderSectionContent()}
+
+          {dashboardError && <div className="error-message">{dashboardError}</div>}
+          {loadingDashboard ? (
+            <div className="loading">{t("loadingDashboard")}</div>
+          ) : (
+            renderSectionContent()
+          )}
         </div>
       </div>
     </div>

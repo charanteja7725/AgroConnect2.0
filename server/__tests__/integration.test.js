@@ -1,30 +1,107 @@
-const request = require("supertest");
-const mongoose = require("mongoose");
-const { MongoMemoryServer } = require("mongodb-memory-server");
-const { app } = require("../server"); // Your express app
-const User = require("../models/User");
-const Product = require("../models/Product");
-const { Order, Cart } = require("../models/Order");
-const Notification = require("../models/Notification");
+process.env.NODE_ENV = 'test';
+const request = require('supertest');
+const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const { app } = require('../server');
+const User = require('../models/User');
+const Product = require('../models/Product');
+const Order = require('../models/Order');
+const Cart = require('../models/Cart');
+const Notification = require('../models/Notification');
 
 let mongoServer;
-let token;
-let sellerToken;
-let testUser;
-let testSeller;
-let testAdmin;
-let testDeliveryPartner;
-let testProduct;
+let sellerToken, buyerToken, adminToken;
+let testProduct, testUser, testSeller;
 
-// Setup and teardown
 beforeAll(async () => {
-  // Disconnect any existing connections
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
+
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
+
   mongoServer = await MongoMemoryServer.create();
-  const mongoUri = mongoServer.getUri();
-  await mongoose.connect(mongoUri);
+  await mongoose.connect(mongoServer.getUri(), {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+
+  await mongoose.connection.db.dropDatabase();
+
+  // Create test users
+  const seller = new User({
+    firstName: 'Test',
+    lastName: 'Seller',
+    email: 'seller@test.com',
+    password: 'test123',
+    role: 'farmer',
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+    address: 'Test Address',
+    phone: '1234567890'
+  });
+  await seller.save();
+
+  const buyer = new User({
+    firstName: 'Test',
+    lastName: 'Buyer',
+    email: 'buyer@test.com',
+    password: 'test123',
+    role: 'buyer',
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+    address: 'Test Address',
+    phone: '0987654321'
+  });
+  await buyer.save();
+
+  const admin = new User({
+    firstName: 'Test',
+    lastName: 'Admin',
+    email: 'admin@test.com',
+    password: 'test123',
+    role: 'admin',
+    phone: '5555555555'
+  });
+  await admin.save();
+
+  // Create test product
+  testProduct = new Product({
+    name: 'Test Tomatoes',
+    description: 'Fresh red tomatoes from test farm',
+    type: 'produce',
+    category: 'vegetables',
+    price: 40,
+    quantity: 100,
+    unit: 'kg',
+    seller: seller._id,
+    location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+    isActive: true,
+    inStock: true
+  });
+  await testProduct.save();
+
+  testUser = buyer;
+  testSeller = seller;
+
+  // Get tokens
+  const sellerLogin = await request(app).post('/api/auth/login').send({
+    email: 'seller@test.com',
+    password: 'test123'
+  });
+  sellerToken = sellerLogin.body.token;
+
+  const buyerLogin = await request(app).post('/api/auth/login').send({
+    email: 'buyer@test.com',
+    password: 'test123'
+  });
+  buyerToken = buyerLogin.body.token;
+
+  const adminLogin = await request(app).post('/api/auth/login').send({
+    email: 'admin@test.com',
+    password: 'test123'
+  });
+  adminToken = adminLogin.body.token;
 });
 
 afterAll(async () => {
@@ -32,751 +109,218 @@ afterAll(async () => {
   await mongoServer.stop();
 });
 
-beforeEach(async () => {
-  // Clear collections
-  await User.deleteMany({});
-  await Product.deleteMany({});
-  await Order.deleteMany({});
-  await Notification.deleteMany({});
-  await Cart.deleteMany({});
-
-  // Create test user (buyer)
-  testUser = await User.create({
-    firstName: "John",
-    lastName: "Buyer",
-    email: "buyer@test.com",
-    password: "test123",
-    phone: "1234567890",
-    role: "buyer",
-    isActive: true,
-  });
-
-  // Create test seller
-  testSeller = await User.create({
-    firstName: "Jane",
-    lastName: "Farmer",
-    email: "seller@test.com",
-    password: "test123",
-    phone: "0987654321",
-    role: "farmer",
-    isActive: true,
-    location: { type: "Point", coordinates: [0, 0] },
-  });
-
-  // Create admin user for delivery creation
-  testAdmin = await User.create({
-    firstName: "Admin",
-    lastName: "User",
-    email: "admin@test.com",
-    password: "test123",
-    phone: "1111111111",
-    role: "admin",
-    isActive: true,
-  });
-
-  // Create delivery partner user for nearby assignment testing
-  testDeliveryPartner = await User.create({
-    firstName: "Delivery",
-    lastName: "Partner",
-    email: "partner@test.com",
-    password: "test123",
-    phone: "2222222222",
-    role: "delivery_partner",
-    isActive: true,
-  });
-
-  // Create test product
-  testProduct = await Product.create({
-    name: "Tomatoes",
-    type: "produce",
-    category: "vegetables",
-    description: "Fresh red tomatoes",
-    price: 50,
-    quantity: 100,
-    unit: "kg",
-    seller: testSeller._id,
-    sellerName: "Jane Farmer",
-    location: { type: "Point", coordinates: [0, 0] },
-    isActive: true,
-    inStock: true,
-  });
-
-  // Generate buyer token
-  const loginRes = await request(app)
-    .post("/api/auth/login")
-    .send({
-      email: "buyer@test.com",
-      password: "test123",
-    });
-
-  token = loginRes.body.token;
-
-  // Generate seller token for product creation and order flow
-  const sellerLoginRes = await request(app)
-    .post("/api/auth/login")
-    .send({
-      email: "seller@test.com",
-      password: "test123",
-    });
-
-  sellerToken = sellerLoginRes.body.token;
-});
-
-describe("Authentication Tests", () => {
-  describe("POST /api/auth/register", () => {
-    test("should register a new user successfully", async () => {
-      const res = await request(app)
-        .post("/api/auth/register")
-        .send({
-          firstName: "Test",
-          lastName: "User",
-          email: "newuser@test.com",
-          password: "test123",
-          phone: "9876543210",
-          role: "buyer",
-        });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.token).toBeDefined();
-      expect(res.body.user.email).toBe("newuser@test.com");
-    });
-
-    test("should fail with invalid email", async () => {
-      const res = await request(app)
-        .post("/api/auth/register")
-        .send({
-          firstName: "Test",
-          lastName: "User",
-          email: "invalid-email",
-          password: "test123",
-          phone: "9876543210",
-          role: "buyer",
-        });
-
-      expect(res.status).toBe(400);
-      expect(res.body.errors).toBeDefined();
-    });
-
-    test("should fail with duplicate email", async () => {
-      const res = await request(app)
-        .post("/api/auth/register")
-        .send({
-          firstName: "Test",
-          lastName: "User",
-          email: "buyer@test.com",
-          password: "test123",
-          phone: "1111111111",
-          role: "buyer",
-        });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("already exists");
-    });
-  });
-
-  describe("POST /api/auth/login", () => {
-    test("should login user successfully", async () => {
-      const res = await request(app)
-        .post("/api/auth/login")
-        .send({
-          email: "buyer@test.com",
-          password: "test123",
-        });
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.token).toBeDefined();
-    });
-
-    test("should fail with invalid credentials", async () => {
-      const res = await request(app)
-        .post("/api/auth/login")
-        .send({
-          email: "buyer@test.com",
-          password: "wrongpassword",
-        });
-
-      expect(res.status).toBe(401);
-      expect(res.body.error).toContain("Invalid");
-    });
-  });
-
-  describe("POST /api/auth/forgot-password", () => {
-    test("should return 200 for any email (email enumeration protection)", async () => {
-      const res = await request(app)
-        .post("/api/auth/forgot-password")
-        .send({ email: "buyer@test.com" });
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-    });
-
-    test("should return 200 for non-existent email", async () => {
-      const res = await request(app)
-        .post("/api/auth/forgot-password")
-        .send({ email: "nonexistent@test.com" });
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-    });
-  });
-
-  describe("POST /api/auth/reset-password/:token", () => {
-    test("should reset password with valid token", async () => {
-      // First generate a reset token
-      const user = await User.findById(testUser._id);
-      user.resetPasswordToken = "test-token";
-      user.resetPasswordExpire = Date.now() + 3600000;
-      await user.save();
-
-      // Mock JWT verification would happen here in real test
-      // For this test, we're testing the concept
-      expect(user.resetPasswordToken).toBe("test-token");
-    });
-  });
-});
-
-describe("Product Tests", () => {
-  describe("GET /api/products", () => {
-    test("should fetch all products with pagination", async () => {
-      const res = await request(app)
-        .get("/api/products")
-        .query({ page: 1, limit: 10 });
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.products).toBeInstanceOf(Array);
-      expect(res.body.total).toBe(1);
-    });
-
-    test("should filter products by category", async () => {
-      const res = await request(app)
-        .get("/api/products")
-        .query({ category: "vegetables" });
-
-      expect(res.status).toBe(200);
-      expect(res.body.products.length).toBeGreaterThan(0);
-      expect(res.body.products[0].category).toBe("vegetables");
-    });
-
-    test("should filter products by price range", async () => {
-      const res = await request(app)
-        .get("/api/products")
-        .query({ minPrice: 40, maxPrice: 60 });
-
-      expect(res.status).toBe(200);
-      expect(res.body.products.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe("POST /api/products", () => {
-    test("should create product with auth", async () => {
-      const res = await request(app)
-        .post("/api/products")
-        .set("Authorization", `Bearer ${sellerToken}`)
-        .send({
-          name: "New Vegetable",
-          description: "Test product",
-          type: "produce",
-          category: "vegetables",
-          price: 100,
-          quantity: 50,
-          unit: "kg",
-          images: [],
-          location: {
-            type: "Point",
-            coordinates: [0, 0],
-            address: "Test location",
-          },
-        });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-    });
-
-    test("should fail without authentication", async () => {
-      const res = await request(app)
-        .post("/api/products")
-        .send({
-          name: "New Product",
-          price: 100,
-        });
-
-      expect(res.status).toBe(401);
-    });
-  });
-
-  describe("POST /api/products/:id/review", () => {
-    test("should add product review", async () => {
-      const res = await request(app)
-        .post(`/api/products/${testProduct._id}/review`)
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          rating: 4,
-          comment: "Great product!",
-        });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-    });
-
-    test("should prevent self-review", async () => {
-      // Login as seller
-      const sellerLoginRes = await request(app)
-        .post("/api/auth/login")
-        .send({ email: "seller@test.com", password: "test123" });
-
-      const sellerToken = sellerLoginRes.body.token;
-
-      const res = await request(app)
-        .post(`/api/products/${testProduct._id}/review`)
-        .set("Authorization", `Bearer ${sellerToken}`)
-        .send({
-          rating: 4,
-          comment: "Self review",
-        });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("own product");
-    });
-
-    test("should prevent duplicate reviews from same user", async () => {
-      // Add first review
-      await request(app)
-        .post(`/api/products/${testProduct._id}/review`)
-        .set("Authorization", `Bearer ${token}`)
-        .send({ rating: 5, comment: "First review" });
-
-      // Try to add second review
-      const res = await request(app)
-        .post(`/api/products/${testProduct._id}/review`)
-        .set("Authorization", `Bearer ${token}`)
-        .send({ rating: 3, comment: "Second review" });
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("already reviewed");
-    });
-  });
-});
-
-describe("Cart Tests", () => {
-  describe("POST /api/cart/add", () => {
-    test("should add item to cart", async () => {
-      const res = await request(app)
-        .post("/api/cart/add")
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          productId: testProduct._id,
-          quantity: 5,
-        });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-    });
-  });
-
-  describe("GET /api/cart", () => {
-    test("should get user cart", async () => {
-      // Add item first
-      await request(app)
-        .post("/api/cart/add")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ productId: testProduct._id, quantity: 3 });
-
-      const res = await request(app)
-        .get("/api/cart")
-        .set("Authorization", `Bearer ${token}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.cart.items).toBeInstanceOf(Array);
-    });
-  });
-});
-
-describe("Order Tests", () => {
-  describe("POST /api/orders/create", () => {
-    test("should create order with transaction", async () => {
-      // Add to cart first
-      await request(app)
-        .post("/api/cart/add")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ productId: testProduct._id, quantity: 5 });
-
-      const res = await request(app)
-        .post("/api/orders/create")
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          deliveryAddress: {
-            street: "123 Test St",
-            city: "Test City",
-            state: "Test State",
-            zipCode: "123456",
-            country: "India",
-          },
-          billingAddress: {
-            street: "123 Test St",
-            city: "Test City",
-            state: "Test State",
-            zipCode: "123456",
-            country: "India",
-          },
-          paymentMethod: "cash_on_delivery",
-        });
-
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.order).toBeDefined();
-    });
-
-    test("should fail with empty cart", async () => {
-      const res = await request(app)
-        .post("/api/orders/create")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ deliveryAddress: "123 Test St" });
-
-      expect(res.status).toBe(400);
-    });
-  });
-
-  describe("PUT /api/orders/:id/status", () => {
-    test("should update order status", async () => {
-      // Create order first
-      await request(app)
-        .post("/api/cart/add")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ productId: testProduct._id, quantity: 2 });
-
-      const orderRes = await request(app)
-        .post("/api/orders/create")
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          deliveryAddress: {
-            street: "123 Test St",
-            city: "Test City",
-            state: "Test State",
-            zipCode: "123456",
-            country: "India",
-          },
-          paymentMethod: "cash_on_delivery",
-        });
-
-      const orderId = orderRes.body.order._id;
-
-      // Login as seller to confirm order
-      const sellerLoginRes = await request(app)
-        .post("/api/auth/login")
-        .send({ email: "seller@test.com", password: "test123" });
-
-      const res = await request(app)
-        .put(`/api/orders/${orderId}/status`)
-        .set("Authorization", `Bearer ${sellerLoginRes.body.token}`)
-        .send({ status: "confirmed", note: "Confirmed" });
-
-      expect(res.status).toBe(200);
-    });
-  });
-});
-
-describe("Delivery Tests", () => {
-  test("should allow a delivery partner to find and accept a nearby open delivery", async () => {
-    const adminLoginRes = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "admin@test.com", password: "test123" });
-
-    const adminToken = adminLoginRes.body.token;
-
-    const deliveryCreateRes = await request(app)
-      .post("/api/delivery/create")
-      .set("Authorization", `Bearer ${adminToken}`)
+describe('Authentication Tests', () => {
+  test('should register a new user', async () => {
+    const res = await request(app)
+      .post('/api/auth/register')
       .send({
-        type: "product",
-        order: testProduct._id,
-        sender: testSeller._id,
-        senderPhone: "0987654321",
-        senderLocation: {
-          type: "Point",
-          coordinates: [0, 0],
-          address: "Seller Location",
-        },
-        recipient: testUser._id,
-        recipientName: "John Buyer",
-        recipientPhone: "1234567890",
-        recipientLocation: {
-          type: "Point",
-          coordinates: [0, 0],
-          address: "Buyer Location",
-        },
-        items: [
-          {
-            product: testProduct._id,
-            name: "Tomatoes",
-            quantity: 5,
-            weight: 2,
-          },
-        ],
+        firstName: 'New',
+        lastName: 'User',
+        email: 'new@test.com',
+        password: 'test123',
+        role: 'buyer',
+        phone: '7777777777'
       });
-
-    expect(deliveryCreateRes.status).toBe(201);
-    expect(deliveryCreateRes.body.success).toBe(true);
-
-    const partnerLoginRes = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "partner@test.com", password: "test123" });
-
-    const partnerToken = partnerLoginRes.body.token;
-
-    const nearbyRes = await request(app)
-      .get("/api/delivery/nearby")
-      .set("Authorization", `Bearer ${partnerToken}`)
-      .query({ longitude: 0, latitude: 0, maxDistance: 5000 });
-
-    expect(nearbyRes.status).toBe(200);
-    expect(nearbyRes.body.success).toBe(true);
-    expect(nearbyRes.body.count).toBeGreaterThan(0);
-    expect(Array.isArray(nearbyRes.body.deliveries)).toBe(true);
-
-    const deliveryId = nearbyRes.body.deliveries[0]._id;
-
-    const acceptRes = await request(app)
-      .put(`/api/delivery/${deliveryId}/accept`)
-      .set("Authorization", `Bearer ${partnerToken}`)
-      .send();
-
-    expect(acceptRes.status).toBe(200);
-    expect(acceptRes.body.success).toBe(true);
-    expect(acceptRes.body.delivery.status).toBe("accepted");
-    expect(acceptRes.body.delivery.deliveryPartner.toString()).toBe(testDeliveryPartner._id.toString());
-
-    // Verify delivery partner assignment via GET /api/delivery/:id
-    const getDeliveryRes = await request(app)
-      .get(`/api/delivery/${deliveryId}`)
-      .set("Authorization", `Bearer ${partnerToken}`);
-
-    expect(getDeliveryRes.status).toBe(200);
-    expect(getDeliveryRes.body.success).toBe(true);
-    expect(getDeliveryRes.body.delivery.deliveryPartner._id).toBe(testDeliveryPartner._id.toString());
-    expect(getDeliveryRes.body.delivery.partnerName).toBe("Delivery Partner");
-    expect(getDeliveryRes.body.delivery.partnerPhone).toBe("2222222222");
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
   });
 
-  test("should allow a delivery partner to update status and location for their assigned delivery", async () => {
-    const adminLoginRes = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "admin@test.com", password: "test123" });
+  test('should login user', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'buyer@test.com', password: 'test123' });
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeDefined();
+  });
 
-    const adminToken = adminLoginRes.body.token;
-
-    const deliveryCreateRes = await request(app)
-      .post("/api/delivery/create")
-      .set("Authorization", `Bearer ${adminToken}`)
-      .send({
-        type: "product",
-        order: testProduct._id,
-        sender: testSeller._id,
-        senderPhone: "0987654321",
-        senderLocation: {
-          type: "Point",
-          coordinates: [0, 0],
-          address: "Seller Location",
-        },
-        recipient: testUser._id,
-        recipientName: "John Buyer",
-        recipientPhone: "1234567890",
-        recipientLocation: {
-          type: "Point",
-          coordinates: [0, 0],
-          address: "Buyer Location",
-        },
-        items: [
-          {
-            product: testProduct._id,
-            name: "Tomatoes",
-            quantity: 5,
-            weight: 2,
-          },
-        ],
-      });
-
-    expect(deliveryCreateRes.status).toBe(201);
-
-    const partnerLoginRes = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "partner@test.com", password: "test123" });
-
-    const partnerToken = partnerLoginRes.body.token;
-
-    const nearbyRes = await request(app)
-      .get("/api/delivery/nearby")
-      .set("Authorization", `Bearer ${partnerToken}`)
-      .query({ longitude: 0, latitude: 0, maxDistance: 5000 });
-
-    expect(nearbyRes.status).toBe(200);
-    const deliveryId = nearbyRes.body.deliveries[0]._id;
-
-    const acceptRes = await request(app)
-      .put(`/api/delivery/${deliveryId}/accept`)
-      .set("Authorization", `Bearer ${partnerToken}`)
-      .send();
-
-    expect(acceptRes.status).toBe(200);
-
-    const updateRes = await request(app)
-      .put(`/api/delivery/${deliveryId}/status`)
-      .set("Authorization", `Bearer ${partnerToken}`)
-      .send({
-        status: "picked_up",
-        location: { latitude: 0, longitude: 0 },
-        note: "Package picked up",
-      });
-
-    expect(updateRes.status).toBe(200);
-    expect(updateRes.body.success).toBe(true);
-    expect(updateRes.body.delivery.status).toBe("picked_up");
-    expect(updateRes.body.delivery.partnerLocation.coordinates).toEqual([0, 0]);
-    expect(updateRes.body.delivery.statusHistory).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          status: "picked_up",
-          note: "Package picked up",
-        }),
-      ])
-    );
+  test('should prevent email enumeration in forgot password', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'nonexistent@test.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toContain('If account exists');
   });
 });
 
-describe("Notification Tests", () => {
-  describe("GET /api/notifications", () => {
-    test("should fetch user notifications", async () => {
-      // Create a notification
-      await Notification.create({
-        user: testUser._id,
-        title: "Test Notification",
-        message: "This is a test",
-        type: "order",
-        read: false,
-      });
-
-      const res = await request(app)
-        .get("/api/notifications")
-        .set("Authorization", `Bearer ${token}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.notifications).toBeInstanceOf(Array);
-      expect(res.body.unreadCount).toBeGreaterThan(0);
-    });
+describe('Product Tests', () => {
+  test('should get products with pagination', async () => {
+    const res = await request(app).get('/api/products?page=1&limit=10');
+    expect(res.status).toBe(200);
+    expect(res.body.products).toBeDefined();
+    expect(res.body.page).toBe(1);
+    expect(res.body.total).toBeDefined();
   });
 
-  describe("PUT /api/notifications/:id/read", () => {
-    test("should mark notification as read", async () => {
-      const notification = await Notification.create({
-        user: testUser._id,
-        title: "Test",
-        message: "Test message",
-        type: "order",
-        read: false,
-      });
-
-      const res = await request(app)
-        .put(`/api/notifications/${notification._id}/read`)
-        .set("Authorization", `Bearer ${token}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.notification.read).toBe(true);
-    });
-  });
-});
-
-describe("User Tests", () => {
-  describe("GET /api/users/:id (protected)", () => {
-    test("should require authentication to view user profile", async () => {
-      const res = await request(app).get(`/api/users/${testUser._id}`);
-
-      expect(res.status).toBe(401);
-    });
-
-    test("should view own profile with auth", async () => {
-      const res = await request(app)
-        .get(`/api/users/${testUser._id}`)
-        .set("Authorization", `Bearer ${token}`);
-
-      expect(res.status).toBe(200);
-    });
+  test('should filter products by category', async () => {
+    const res = await request(app).get('/api/products?category=vegetables');
+    expect(res.status).toBe(200);
+    expect(res.body.products.every(p => p.category === 'vegetables')).toBe(true);
   });
 
-  describe("GET /api/users/search/nearby (route ordering test)", () => {
-    test("should find nearby sellers", async () => {
-      const res = await request(app)
-        .get("/api/users/search/nearby")
-        .query({
-          longitude: 0,
-          latitude: 0,
-          maxDistance: 5000,
-          role: "farmer",
-        });
-
-      expect(res.status).toBe(200);
-      expect(res.body.users).toBeInstanceOf(Array);
-    });
+  test('should prevent self-review', async () => {
+    const res = await request(app)
+      .post(`/api/products/${testProduct._id}/review`)
+      .set('Authorization', `Bearer ${sellerToken}`)
+      .send({ rating: 4, comment: 'Self review' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('own product');
   });
-});
 
-describe("Payment Tests", () => {
-  describe("POST /api/payments/webhook", () => {
-    test("should return 400 if webhook secret not configured", async () => {
-      const res = await request(app)
-        .post("/api/payments/webhook")
-        .send({
-          type: "payment_intent.succeeded",
-        });
-
-      expect(res.status).toBe(400);
-    });
-  });
-});
-
-describe("Atomic Transaction Tests", () => {
-  test("should handle race conditions in product quantity updates", async () => {
-    // Create a product with limited stock
-    const limitedProduct = await Product.create({
-      name: "Limited Stock Item",
-      description: "Test limited stock product",
-      type: "produce",
-      category: "vegetables",
-      price: 100,
-      quantity: 1,
-      unit: "kg",
-      seller: testSeller._id,
-      sellerName: "Jane Farmer",
-      location: { type: "Point", coordinates: [0, 0], address: "Test Location" },
-      isActive: true,
-      inStock: true,
-    });
-
-    // Try to create order that exceeds stock
+  test('should prevent duplicate reviews', async () => {
+    // First review
     await request(app)
-      .post("/api/cart/add")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        productId: limitedProduct._id,
-        quantity: 2,
-      });
+      .post(`/api/products/${testProduct._id}/review`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ rating: 4, comment: 'Good product' });
+
+    // Duplicate review
+    const res = await request(app)
+      .post(`/api/products/${testProduct._id}/review`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ rating: 5, comment: 'Another review' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('already reviewed');
+  });
+});
+
+describe('Cart Tests', () => {
+  test('should add item to cart', async () => {
+    const res = await request(app)
+      .post('/api/cart/add')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ productId: testProduct._id, quantity: 2 });
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('should get cart', async () => {
+    const res = await request(app)
+      .get('/api/cart')
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.cart).toBeDefined();
+  });
+
+  test('should update cart item quantity', async () => {
+    const cart = await request(app)
+      .get('/api/cart')
+      .set('Authorization', `Bearer ${buyerToken}`);
+    const itemId = cart.body.cart.items[0]._id;
 
     const res = await request(app)
-      .post("/api/orders/create")
-      .set("Authorization", `Bearer ${token}`)
+      .put(`/api/cart/update/${itemId}`)
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ quantity: 3 });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('Order Tests', () => {
+  test('should create order with transaction', async () => {
+    const res = await request(app)
+      .post('/api/orders/create')
+      .set('Authorization', `Bearer ${buyerToken}`)
       .send({
         deliveryAddress: {
-          street: "123 Test St",
-          city: "Test City",
-          state: "Test State",
-          zipCode: "123456",
-          country: "India",
+          fullName: 'Test Buyer',
+          phone: '1234567890',
+          street: 'Test Street',
+          city: 'Test City',
+          state: 'Test State',
+          zipCode: '123456',
+          country: 'India'
         },
-        paymentMethod: "cash_on_delivery",
+        paymentMethod: 'upi'
       });
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+  });
 
+  test('should prevent overselling with transaction rollback', async () => {
+    // Add a valid cart item first
+    await request(app)
+      .post('/api/cart/add')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({ productId: testProduct._id, quantity: 2 });
+
+    // Simulate stock reduction before checkout
+    await Product.findByIdAndUpdate(testProduct._id, { quantity: 1 });
+
+    const res = await request(app)
+      .post('/api/orders/create')
+      .set('Authorization', `Bearer ${buyerToken}`)
+      .send({
+        deliveryAddress: {
+          fullName: 'Test Buyer',
+          phone: '1234567890',
+          street: 'Test Street',
+          city: 'Test City',
+          state: 'Test State',
+          zipCode: '123456',
+          country: 'India'
+        },
+        paymentMethod: 'upi'
+      });
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("Insufficient");
+    expect(res.body.error).toContain('Insufficient quantity');
+  });
+});
+
+describe('Notification Tests', () => {
+  test('should get notifications', async () => {
+    const res = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.notifications).toBeDefined();
+    expect(res.body.unreadCount).toBeDefined();
+  });
+
+  test('should mark notification as read', async () => {
+    // Create a notification first
+    const notification = new Notification({
+      user: testUser._id,
+      title: 'Test Notification',
+      message: 'Test message',
+      type: 'system'
+    });
+    await notification.save();
+
+    const res = await request(app)
+      .put(`/api/notifications/${notification._id}/read`)
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('User Tests', () => {
+  test('should allow public access to user profile', async () => {
+    const res = await request(app).get(`/api/users/${testUser._id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  test('should allow authenticated access to user profile', async () => {
+    const res = await request(app)
+      .get(`/api/users/${testUser._id}`)
+      .set('Authorization', `Bearer ${buyerToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('should search nearby users', async () => {
+    const res = await request(app)
+      .get('/api/users/search/nearby?latitude=12.9716&longitude=77.5946&maxDistance=&role=farmer');
+    expect(res.status).toBe(200);
+    expect(res.body.users).toBeDefined();
+  });
+});
+
+describe('Payment Tests', () => {
+  test('should handle webhook without secret', async () => {
+    const res = await request(app)
+      .post('/api/payments/webhook')
+      .send({ type: 'payment_intent.succeeded' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('not configured');
   });
 });

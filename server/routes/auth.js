@@ -183,7 +183,7 @@ router.post(
       if (!user) {
         return res.status(200).json({
           success: true,
-          message: "If an account exists with this email, you will receive a password reset link shortly"
+          message: "If account exists, password reset instructions have been sent.",
         });
       }
 

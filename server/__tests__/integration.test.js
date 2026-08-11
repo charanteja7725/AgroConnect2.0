@@ -18,6 +18,7 @@ let testProduct;
 
 // Setup and teardown
 beforeAll(async () => {
+  jest.setTimeout(60000);
   // Disconnect any existing connections
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();

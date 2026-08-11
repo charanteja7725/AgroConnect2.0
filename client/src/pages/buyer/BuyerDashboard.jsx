@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { productAPI, cartAPI } from "../../services/api.js";
-import { useAuth, useNotification } from "../../context/AppHooks.js";
+import { useAuth, useCart, useNotification } from "../../context/AppHooks.js";
 import VoiceSearch from "../../components/VoiceSearch.jsx";
 import { LocationService } from "../../services/LocationService.js";
 import "./buyerdashboard.css";
@@ -9,6 +9,7 @@ import "./buyerdashboard.css";
 const BuyerDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { cart, getTotalItems } = useCart();
   const { addNotification } = useNotification();
   const [searchText, setSearchText] = useState("");
   const [locationInfo, setLocationInfo] = useState(null);
@@ -72,9 +73,9 @@ const BuyerDashboard = () => {
   const handleAddToCart = async (productId) => {
     try {
       await cartAPI.addToCart(productId, 1);
-      addNotification("Product added to cart", "success");
+      if (addNotification) addNotification("Product added to cart", "success");
     } catch (err) {
-      addNotification(err.message || "Unable to add item to cart", "error");
+      if (addNotification) addNotification(err.message || "Unable to add item to cart", "error");
     }
   };
 
@@ -131,213 +132,211 @@ const BuyerDashboard = () => {
     }
   };
 
-  const nearbyFarmers = [
-    { id: 1, name: "Ramesh Kumar", distance: "2.5 km away", products: 8 },
-    { id: 2, name: "Suresh Patel", distance: "3.2 km away", products: 12 },
-    { id: 3, name: "Anil Sharma", distance: "1.8 km away", products: 6 },
-  ];
+  const cartCount = getTotalItems ? getTotalItems() : cart.length;
 
   return (
-    <div className="customer-dashboard-page">
-      {/* Top bar */}
-      <div className="customer-topbar">
-        <div className="customer-topbar-inner">
-          <div className="customer-brand">🌱 AgroConnect</div>
-
-          <div className="customer-user-info">
-            <span className="customer-greeting">Hi, {user?.firstName || "there"}! 👋</span>
+    <div className="farmer-portal-container">
+      {/* Topbar */}
+      <header className="farmer-navbar">
+        <div className="navbar-left">
+          <div className="brand-logo" onClick={() => navigate("/buyer")}>
+            <span className="brand-leaf">🌱</span>
+            <span className="brand-title">AgroConnect</span>
+            <span className="portal-badge">Buyer Marketplace</span>
           </div>
+        </div>
 
-          <div className="customer-top-actions">
+        <div className="navbar-right">
+          <button
+            className="navbar-btn-market"
+            onClick={() => navigate("/fertilizer-store")}
+          >
+            🧪 Fertilizer Store
+          </button>
+
+          <button
+            className="navbar-btn-add"
+            onClick={() => navigate("/buyer/cart")}
+          >
+            🛒 Cart ({cartCount})
+          </button>
+
+          <div className="user-profile-menu">
+            <div className="avatar-circle">
+              {user?.firstName?.[0] || "B"}
+            </div>
+            <span className="user-name-display">{user?.firstName || "Buyer"}</span>
             <button
-              className="icon-btn"
-              onClick={() => navigate("/buyer/cart")}
-            >
-              🛒
-            </button>
-            <button
-              className="logout-btn"
+              className="btn-logout"
               onClick={() => {
                 logout();
                 navigate("/login");
               }}
+              title="Logout"
             >
-              Logout
+              🚪 Logout
             </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="customer-dashboard-content">
-        {/* Search */}
-        <div className="search-bar-wrapper">
-          <div className="search-bar">
-            <select value={locationFilter} onChange={(e) => handleLocationFilterChange(e.target.value)}>
-              <option value="all">All Areas</option>
-              <option value="nearby">Nearby</option>
-              <option value="within5">Within 5 km</option>
-            </select>
-
-            <select value={productType} onChange={(e) => setProductType(e.target.value)}>
-              <option value="all">All Products</option>
-              <option value="produce">Produce</option>
-              <option value="fertilizer">Fertilizer</option>
-            </select>
-
-            <VoiceSearch
-              onSearch={(value) => setSearchText(value)}
-              placeholder="Search for products, fertilizers, sellers..."
-            />
-
-            <button
-              className="store-btn"
-              onClick={() => navigate("/fertilizer-store")}
-            >
-              🧪 Fertilizer Store
-            </button>
-
-            <button
-              className="search-btn"
-              onClick={() => loadProducts(locationInfo, searchText)}
-            >
-              🔍
-            </button>
+      <div className="farmer-main-content" style={{ margin: "0 auto" }}>
+        {/* Banner */}
+        <div className="welcome-banner-card">
+          <div className="banner-text">
+            <h2>Fresh Farm Crops & Agriculture Market 🌾</h2>
+            <p>Directly purchase fresh produce and fertilizers from verified local sellers.</p>
           </div>
-          <div className="location-actions">
-            <button
-              className="location-btn"
-              onClick={async () => {
-                try {
-                  const location = await LocationService.getCurrentLocation();
-                  setLocationInfo(location);
-                  const address = await LocationService.reverseGeocode(location.latitude, location.longitude);
-                  setLocationAddress(
-                    address
-                      ? `${address.city || address.town || address.village || ""}, ${address.state || ""}`.trim()
-                      : "Current location"
-                  );
-                  loadProducts(location, searchText);
-                } catch (error) {
-                  setLocationInfo({ error: error.message });
-                }
-              }}
-            >
-              Use My Location
-            </button>
-            {locationInfo && (
-              <div className="location-status">
-                {locationInfo.error ? (
-                  `Location error: ${locationInfo.error}`
-                ) : (
-                  <>
-                    <span>{`Current location: ${locationInfo.latitude.toFixed(3)}, ${locationInfo.longitude.toFixed(3)}`}</span>
-                    {locationAddress && <span> · {locationAddress}</span>}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+          <button
+            className="banner-primary-btn"
+            onClick={() => navigate("/fertilizer-store")}
+          >
+            Browse Fertilizer Store →
+          </button>
         </div>
 
-        {/* Nearby Farmers */}
-        <div className="section-title">📍 Nearby Farmers</div>
-        <div className="farmer-strip">
-          {nearbyFarmers.map((farmer) => (
-            <div className="farmer-mini-card" key={farmer.id}>
-              <div className="farmer-mini-icon">🌱</div>
+        {/* Search & Filter Bar */}
+        <div className="dashboard-section-card">
+          <div className="search-bar-wrapper">
+            <div className="buyer-search-controls">
+              <select
+                className="filter-select"
+                value={locationFilter}
+                onChange={(e) => handleLocationFilterChange(e.target.value)}
+              >
+                <option value="all">📍 All Locations</option>
+                <option value="nearby">📍 Nearby Sellers</option>
+                <option value="within5">📍 Within 5 km</option>
+              </select>
 
-              <div className="farmer-mini-info">
-                <h4>{farmer.name}</h4>
-                <p>{farmer.distance}</p>
+              <select
+                className="filter-select"
+                value={productType}
+                onChange={(e) => setProductType(e.target.value)}
+              >
+                <option value="all">📦 All Product Types</option>
+                <option value="produce">🥦 Fresh Produce</option>
+                <option value="fertilizer">🧪 Fertilizers & Seeds</option>
+              </select>
+
+              <div className="voice-search-container">
+                <VoiceSearch
+                  onSearch={(value) => setSearchText(value)}
+                  placeholder="Search products, crops, fertilizers..."
+                />
               </div>
 
-              <span className="mini-badge">{farmer.products} products</span>
+              <button
+                className="btn-primary-action"
+                onClick={() => loadProducts(locationInfo, searchText)}
+              >
+                🔍 Search
+              </button>
             </div>
-          ))}
+
+            <div className="location-actions-bar">
+              <button
+                className="location-btn"
+                onClick={async () => {
+                  try {
+                    const location = await LocationService.getCurrentLocation();
+                    setLocationInfo(location);
+                    const address = await LocationService.reverseGeocode(location.latitude, location.longitude);
+                    setLocationAddress(
+                      address
+                        ? `${address.city || address.town || address.village || ""}, ${address.state || ""}`.trim()
+                        : "Current location"
+                    );
+                    loadProducts(location, searchText);
+                  } catch (err) {
+                    setError(err.message || "Unable to get current GPS location");
+                  }
+                }}
+              >
+                📍 Use My GPS Location
+              </button>
+              {locationInfo && (
+                <span className="location-hint">
+                  {locationAddress
+                    ? `Showing items near ${locationAddress}`
+                    : `Near ${locationInfo.latitude?.toFixed(3)}, ${locationInfo.longitude?.toFixed(3)}`}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Products */}
-        <div className="products-header">
-          <h3>Fresh Products Available</h3>
-          <button className="filter-btn">Filter</button>
-        </div>
+        {/* Product Cards Grid */}
+        <div className="dashboard-section-card">
+          <div className="section-card-header">
+            <div>
+              <h3>Available Marketplace Listings</h3>
+              <p className="subtext">Direct listings from farmers & authorized sellers</p>
+            </div>
+          </div>
 
-        {loading ? (
-          <div className="loading-state">Loading products...</div>
-        ) : error ? (
-          <div className="error-state">{error}</div>
-        ) : (
-          <div className="product-grid">
-            {filteredProducts.map((product) => (
-              <div className="product-card" key={product._id}>
-                <div className="product-image-wrapper">
-                  <img
-                    src={product.mainImage || product.images?.[0]?.url || "https://via.placeholder.com/300"}
-                    alt={product.name}
-                  />
-                  <div className="rating-badge">⭐ {product.rating || "4.5"}</div>
-                </div>
-
-                <div className="product-card-body">
-                  <h4>{product.name}</h4>
-                  <p className="farmer-line">🌱 {product.sellerName || product.seller?.firstName || "Local Farmer"}</p>
-                  <p className="distance-line">📍 {product.address || "Nearby"}</p>
-                  {getDistanceLabel(product) && (
-                    <p className="distance-line">📏 {getDistanceLabel(product)}</p>
-                  )}
-
-                  <div className="product-meta">
-                    <span className="product-price">₹{product.price}/kg</span>
-                    <span className="product-stock">{product.quantity || "In Stock"} kg</span>
+          {loading ? (
+            <div className="loading-state">
+              <div className="spinner"></div>
+              <p>Loading fresh marketplace listings...</p>
+            </div>
+          ) : error ? (
+            <div className="error-banner">{error}</div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="empty-state-box">
+              <div className="empty-icon">🌾</div>
+              <h4>No Products Found</h4>
+              <p>Try searching for a different crop name or clearing location filters.</p>
+            </div>
+          ) : (
+            <div className="products-grid">
+              {filteredProducts.map((product) => (
+                <div className="farmer-product-card" key={product._id}>
+                  <div className="product-card-thumb">
+                    <img
+                      src={product.mainImage || product.images?.[0]?.url || "https://via.placeholder.com/300"}
+                      alt={product.name}
+                    />
+                    <span className="stock-badge in-stock">
+                      ⭐ {product.rating || "4.8"}
+                    </span>
                   </div>
 
-                  <button className="add-cart-btn" onClick={() => handleAddToCart(product._id)}>
-                    🛒 Add to Cart
-                  </button>
+                  <div className="product-card-content">
+                    <div className="product-category-tag">{product.type === "fertilizer" ? "🧪 Fertilizer" : "🌱 Produce"}</div>
+                    <h4 className="product-title">{product.name}</h4>
+                    <p className="subtext">
+                      Seller: <strong>{product.sellerName || product.seller?.firstName || "Local Seller"}</strong>
+                    </p>
+                    <p className="subtext">📍 {product.address || "Local Farm"}</p>
+                    {getDistanceLabel(product) && (
+                      <p className="subtext" style={{ color: "#16a34a", fontWeight: 600 }}>📏 {getDistanceLabel(product)}</p>
+                    )}
+
+                    <div style={{ marginTop: "12px" }}>
+                      <span className="product-price-tag">₹{product.price}</span>
+                      <span className="unit-text"> / {product.unit || "kg"}</span>
+                      <span style={{ float: "right", fontSize: "12px", color: "#64748b" }}>Stock: {product.quantity || 0} {product.unit || "kg"}</span>
+                    </div>
+
+                    <div className="product-card-actions" style={{ marginTop: "14px" }}>
+                      <button
+                        className="btn-primary-action"
+                        style={{ width: "100%", padding: "10px" }}
+                        onClick={() => handleAddToCart(product._id)}
+                      >
+                        🛒 Add to Cart
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Price comparison */}
-        <div className="comparison-box">
-          <h3>Price Comparison</h3>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Farmer 1</th>
-                <th>Farmer 2</th>
-                <th>Best Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Tomatoes</td>
-                <td>₹40/kg</td>
-                <td>₹45/kg</td>
-                <td className="best-price">₹40/kg</td>
-              </tr>
-              <tr>
-                <td>Potatoes</td>
-                <td>₹30/kg</td>
-                <td>₹32/kg</td>
-                <td className="best-price">₹30/kg</td>
-              </tr>
-              <tr>
-                <td>Onions</td>
-                <td>₹35/kg</td>
-                <td>₹33/kg</td>
-                <td className="best-price">₹33/kg</td>
-              </tr>
-            </tbody>
-          </table>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-export default BuyerDashboard;
+export default BuyerDashboard;

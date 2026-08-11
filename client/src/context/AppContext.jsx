@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { authAPI } from "../services/api.js";
+import { authAPI, cartAPI } from "../services/api.js";
 import {
   AuthContext,
   CartContext,
@@ -58,55 +58,111 @@ export const AuthProvider = ({ children }) => {
 };
 
 export const CartProvider = ({ children }) => {
-  const [cart, setCart] = useState(() => {
-    const savedCart = localStorage.getItem("agroconnect_cart");
-    return savedCart ? JSON.parse(savedCart) : [];
-  });
+  const [cart, setCart] = useState([]);
+  const [backendCart, setBackendCart] = useState(null);
+  const { token } = React.useContext(AuthContext) || {};
 
-  const addToCart = useCallback((product) => {
-    setCart((prevCart) => {
-      const existingItem = prevCart.find((item) => item.id === product.id);
+  const fetchCart = useCallback(async () => {
+    if (!token) {
+      setCart([]);
+      setBackendCart(null);
+      return;
+    }
+    try {
+      const data = await cartAPI.getCart();
+      if (data.success && data.cart) {
+        setBackendCart(data.cart);
+        setCart(data.cart.items || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch cart:", err);
+    }
+  }, [token]);
 
-      const updatedCart = existingItem
-        ? prevCart.map((item) =>
-            item.id === product.id ? { ...item, quantity: item.quantity + (product.quantity || 1) } : item
-          )
-        : [...prevCart, { ...product, quantity: product.quantity || 1 }];
+  useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
 
-      localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
-      return updatedCart;
-    });
+  const addToCart = useCallback(async (product, quantity = 1) => {
+    const productId = typeof product === "string" ? product : (product._id || product.id);
+    try {
+      const data = await cartAPI.addToCart(productId, quantity);
+      if (data.success && data.cart) {
+        setBackendCart(data.cart);
+        setCart(data.cart.items || []);
+      }
+      return data;
+    } catch (err) {
+      console.error("Failed to add to cart:", err);
+      throw err;
+    }
   }, []);
 
-  const removeFromCart = useCallback((productId) => {
-    setCart((prevCart) => {
-      const updatedCart = prevCart.filter((item) => item.id !== productId);
-      localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
-      return updatedCart;
-    });
+  const removeFromCart = useCallback(async (productId) => {
+    if (!backendCart?.items) return;
+    const item = backendCart.items.find(
+      (i) => i.product?._id === productId || i.product === productId || i.product?.id === productId
+    );
+    if (!item) return;
+
+    try {
+      const data = await cartAPI.removeFromCart(item._id);
+      if (data.success && data.cart) {
+        setBackendCart(data.cart);
+        setCart(data.cart.items || []);
+      }
+      return data;
+    } catch (err) {
+      console.error("Failed to remove from cart:", err);
+      throw err;
+    }
+  }, [backendCart]);
+
+  const updateQuantity = useCallback(async (productId, quantity) => {
+    if (!backendCart?.items) return;
+    const item = backendCart.items.find(
+      (i) => i.product?._id === productId || i.product === productId || i.product?.id === productId
+    );
+    if (!item) return;
+
+    try {
+      const data = await cartAPI.updateCartItem(item._id, quantity);
+      if (data.success && data.cart) {
+        setBackendCart(data.cart);
+        setCart(data.cart.items || []);
+      }
+      return data;
+    } catch (err) {
+      console.error("Failed to update cart quantity:", err);
+      throw err;
+    }
+  }, [backendCart]);
+
+  const clearCart = useCallback(async () => {
+    try {
+      const data = await cartAPI.clearCart();
+      if (data.success) {
+        setBackendCart(null);
+        setCart([]);
+      }
+      return data;
+    } catch (err) {
+      console.error("Failed to clear cart:", err);
+      throw err;
+    }
   }, []);
 
-  const updateQuantity = useCallback((productId, quantity) => {
-    setCart((prevCart) => {
-      const updatedCart = prevCart.map((item) =>
-        item.id === productId ? { ...item, quantity: Math.max(0, quantity) } : item
-      );
-      localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
-      return updatedCart;
-    });
-  }, []);
+  const getTotalPrice = useCallback(() => {
+    return backendCart ? backendCart.totalPrice : 0;
+  }, [backendCart]);
 
-  const clearCart = useCallback(() => {
-    setCart([]);
-    localStorage.removeItem("agroconnect_cart");
-  }, []);
-
-  const getTotalPrice = useCallback(() => cart.reduce((total, item) => total + item.price * item.quantity, 0), [cart]);
-  const getTotalItems = useCallback(() => cart.reduce((total, item) => total + item.quantity, 0), [cart]);
+  const getTotalItems = useCallback(() => {
+    return backendCart ? backendCart.totalQuantity : 0;
+  }, [backendCart]);
 
   return (
     <CartContext.Provider
-      value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, getTotalPrice, getTotalItems }}
+      value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, getTotalPrice, getTotalItems, refreshCart: fetchCart }}
     >
       {children}
     </CartContext.Provider>

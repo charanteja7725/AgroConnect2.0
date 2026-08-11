@@ -1,8 +1,40 @@
-.customer-dashboard-page {
-  min-height: 100vh;
-  background: #f5f7f5;
-  font-family: "Inter", sans-serif;
+@import "../farmer/farmerdashboard.css";
+
+.buyer-search-controls {
+  display: grid;
+  grid-template-columns: 180px 200px 1fr 120px;
+  gap: 12px;
+  align-items: center;
 }
+
+.filter-select {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+}
+
+.voice-search-container {
+  width: 100%;
+}
+
+.location-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+  .buyer-search-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 .customer-topbar {
   background: #16a34a;

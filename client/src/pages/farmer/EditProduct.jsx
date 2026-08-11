@@ -14,6 +14,7 @@ const EditProduct = () => {
   const [marketPrice, setMarketPrice] = useState("");
   const [unit, setUnit] = useState("kg");
   const [location, setLocation] = useState("");
+  const [locationCoords, setLocationCoords] = useState(null);
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -31,6 +32,7 @@ const EditProduct = () => {
         setMarketPrice(product.price || "");
         setUnit(product.unit || "kg");
         setLocation(product.address || product.location?.name || "");
+        setLocationCoords(product.location || null);
         setDescription(product.description || "");
         setImageUrl(product.images?.[0]?.url || "");
       } catch (error) {
@@ -63,7 +65,7 @@ const EditProduct = () => {
         unit,
         images,
         address: location,
-        location: {
+        location: locationCoords || {
           type: "Point",
           coordinates: [0, 0],
         },

@@ -85,16 +85,18 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.static("public"));
 
 // MongoDB Connection
-mongoose
-  .connect(
-    process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect"
-  )
-  .then(() => {
-    console.log("✅ MongoDB Connected");
-  })
-  .catch((err) => {
-    console.error("❌ MongoDB Error:", err);
-  });
+if (process.env.NODE_ENV !== "test") {
+  mongoose
+    .connect(
+      process.env.MONGODB_URI || "mongodb://localhost:27017/agroconnect"
+    )
+    .then(() => {
+      console.log("✅ MongoDB Connected");
+    })
+    .catch((err) => {
+      console.error("❌ MongoDB Error:", err);
+    });
+}
 
 // Make io accessible to routes
 app.set("io", io);
@@ -203,7 +205,7 @@ function validateStartupConfig() {
   }
 
   // Check MongoDB
-  if (!process.env.MONGODB_URI) {
+  if (!process.env.MONGODB_URI && process.env.NODE_ENV !== "test") {
     errors.push("❌ MONGODB_URI is not configured");
   }
 

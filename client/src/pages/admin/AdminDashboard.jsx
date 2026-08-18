@@ -1,198 +1,467 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AppContext.jsx";
-import { useLanguage } from "../../context/LanguageContext.jsx";
-import { adminAPI } from "../../services/api.js";
-import HeaderControls from "../../components/HeaderControls.jsx";
+import { useAuth } from "../../context/AppHooks.js";
+import { orderAPI, productAPI, userAPI } from "../../services/api.js";
 import "./admindashboard.css";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const { t } = useLanguage();
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    totalOrders: 0,
-    revenue: 0,
-    activeFarmers: 0
-  });
-  const [users, setUsers] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [deliveries, setDeliveries] = useState([]);
-  const [verifications, setVerifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState("dashboard");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedRole, setSelectedRole] = useState("");
+  const [actionLoading, setActionLoading] = useState({});
+  const [actionMsg, setActionMsg] = useState("");
+  const [verificationFilter, setVerificationFilter] = useState("pending");
+  const [reviewNotes, setReviewNotes] = useState({});
+  const [stats, setStats] = useState({
+    totalUsers: 0, totalOrders: 0, revenue: 0, totalProducts: 0,
+    farmers: 0, buyers: 0, fertilizerSellers: 0, deliveryPartners: 0,
+  });
+  const [recentUsers, setRecentUsers] = useState([]);
+  const [pendingFarmers, setPendingFarmers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
+  const [allOrders, setAllOrders] = useState([]);
 
-  useEffect(() => {
-    loadStats();
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [ordersRes, farmersRes, buyersRes, fertilizerRes, deliveryRes, productsRes] =
+        await Promise.all([
+          orderAPI.getOrders(),
+          userAPI.getUsersByRole("farmer"),
+          userAPI.getUsersByRole("buyer"),
+          userAPI.getUsersByRole("fertilizer_seller"),
+          userAPI.getUsersByRole("delivery_partner"),
+          productAPI.getAllProducts({ limit: 5 }),
+        ]);
+
+      const allFarmers = farmersRes.users || [];
+      const allBuyers = buyersRes.users || [];
+      const allFertSellers = fertilizerRes.users || [];
+      const allDelivery = deliveryRes.users || [];
+
+      const totalUsers = allFarmers.length + allBuyers.length + allFertSellers.length + allDelivery.length;
+      const revenue = (ordersRes.orders || []).reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+      setStats({
+        totalUsers,
+        totalOrders: ordersRes.count || 0,
+        revenue,
+        totalProducts: productsRes.total || 0,
+        farmers: allFarmers.length,
+        buyers: allBuyers.length,
+        fertilizerSellers: allFertSellers.length,
+        deliveryPartners: allDelivery.length,
+      });
+
+      const merged = [...allFarmers, ...allBuyers, ...allFertSellers, ...allDelivery]
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      setRecentUsers(merged.slice(0, 6));
+      setAllUsers(merged);
+      setAllOrders(ordersRes.orders || []);
+      setAllProducts(productsRes.products || []);
+    } catch (err) {
+      setError(err.message || "Unable to load admin dashboard");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  const loadPendingFarmers = useCallback(async (status) => {
+    setLoading(true);
+    try {
+      const res = await userAPI.getPendingVerifications(status);
+      setPendingFarmers(res.farmers || []);
+    } catch (err) {
+      setError(err.message || "Unable to load verifications");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadDashboard(); }, [loadDashboard]);
   useEffect(() => {
-    if (activeTab === "users") loadUsers();
-    else if (activeTab === "orders") loadOrders();
-    else if (activeTab === "products") loadProducts();
-    else if (activeTab === "deliveries") loadDeliveries();
-    else if (activeTab === "verifications") loadVerifications();
-  }, [activeTab, currentPage, searchTerm, selectedRole]);
+    if (activeSection === "verification") {
+      loadPendingFarmers(verificationFilter);
+    }
+  }, [activeSection, verificationFilter, loadPendingFarmers]);
 
-  const loadStats = async () => {
-    setLoading(true);
-    setError("");
+  const handleVerification = async (farmerId, action, notes, rejectionReason) => {
+    setActionLoading(prev => ({ ...prev, [farmerId]: true }));
+    setActionMsg("");
     try {
-      const response = await adminAPI.getStats();
-      setStats(response.stats);
+      const res = await userAPI.reviewVerification(farmerId, action, notes, rejectionReason);
+      setActionMsg({ type: "success", text: res.message || `Action '${action}' applied.` });
+      // Refresh pending list
+      await loadPendingFarmers(verificationFilter);
     } catch (err) {
-      setError("Failed to load statistics");
-      console.error(err);
+      setActionMsg({ type: "error", text: err.message || "Action failed." });
     } finally {
-      setLoading(false);
+      setActionLoading(prev => ({ ...prev, [farmerId]: false }));
     }
   };
 
-  const loadUsers = async () => {
-    setLoading(true);
-    setError("");
+  const handleSuspendUser = async (userId, action) => {
+    setActionLoading(prev => ({ ...prev, [userId]: true }));
     try {
-      const params = { page: currentPage, limit: 20 };
-      if (searchTerm) params.search = searchTerm;
-      if (selectedRole) params.role = selectedRole;
-      const response = await adminAPI.getUsers(params);
-      setUsers(response.users || []);
+      await userAPI.suspendUser(userId, action);
+      setActionMsg({ type: "success", text: `User ${action === "suspend" ? "suspended" : "activated"}.` });
+      await loadDashboard();
     } catch (err) {
-      setError("Failed to load users");
-      console.error(err);
+      setActionMsg({ type: "error", text: err.message || "Failed to update user." });
     } finally {
-      setLoading(false);
+      setActionLoading(prev => ({ ...prev, [userId]: false }));
     }
   };
 
-  const loadOrders = async () => {
-    setLoading(true);
-    setError("");
+  const handleDeleteProduct = async (productId) => {
+    if (!window.confirm("Are you sure you want to remove this product?")) return;
     try {
-      const params = { page: currentPage, limit: 20 };
-      if (searchTerm) params.search = searchTerm;
-      const response = await adminAPI.getOrders(params);
-      setOrders(response.orders || []);
+      await productAPI.deleteProduct(productId);
+      setAllProducts(prev => prev.filter(p => p._id !== productId));
+      setActionMsg({ type: "success", text: "Product removed." });
     } catch (err) {
-      setError("Failed to load orders");
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadProducts = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const params = { page: currentPage, limit: 20 };
-      if (searchTerm) params.search = searchTerm;
-      const response = await adminAPI.getProducts(params);
-      setProducts(response.products || []);
-    } catch (err) {
-      setError("Failed to load products");
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadDeliveries = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const params = { page: currentPage, limit: 20 };
-      if (searchTerm) params.search = searchTerm;
-      const response = await adminAPI.getDeliveries(params);
-      setDeliveries(response.deliveries || []);
-    } catch (err) {
-      setError("Failed to load deliveries");
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadVerifications = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await adminAPI.getVerifications();
-      setVerifications(response.verifications || []);
-    } catch (err) {
-      setError("Failed to load verifications");
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUserStatusToggle = async (userId, currentStatus) => {
-    try {
-      await adminAPI.updateUserStatus(userId, !currentStatus);
-      loadUsers(); // Reload users
-    } catch (err) {
-      setError("Failed to update user status");
-      console.error(err);
-    }
-  };
-
-  const handleOrderStatusUpdate = async (orderId, newStatus) => {
-    try {
-      await adminAPI.updateOrderStatus(orderId, newStatus);
-      loadOrders(); // Reload orders
-    } catch (err) {
-      setError("Failed to update order status");
-      console.error(err);
-    }
-  };
-
-  const handleProductDelete = async (productId) => {
-    if (!confirm(t("deleteProductConfirm"))) return;
-    try {
-      await adminAPI.deleteProduct(productId);
-      loadProducts(); // Reload products
-    } catch (err) {
-      setError("Failed to delete product");
-      console.error(err);
-    }
-  };
-
-  const handleVerificationReview = async (userId, status) => {
-    try {
-      await adminAPI.reviewVerification(userId, status, "Reviewed from admin dashboard");
-      loadVerifications();
-    } catch (err) {
-      setError("Failed to update verification status");
-      console.error(err);
+      setActionMsg({ type: "error", text: err.message || "Failed to delete product." });
     }
   };
 
   const platformStats = [
-    { label: "Total Users", value: stats.totalUsers.toLocaleString(), icon: "👥", color: "blue" },
-    { label: "Total Orders", value: stats.totalOrders.toLocaleString(), icon: "📦", color: "green" },
+    { label: "Total Users", value: stats.totalUsers, icon: "👥", color: "blue" },
+    { label: "Total Orders", value: stats.totalOrders, icon: "📦", color: "green" },
     { label: "Revenue", value: `₹${stats.revenue.toLocaleString()}`, icon: "💰", color: "purple" },
-    { label: "Active Farmers", value: stats.activeFarmers.toLocaleString(), icon: "🌾", color: "orange" },
+    { label: "Active Farmers", value: stats.farmers, icon: "🌾", color: "orange" },
+    { label: "Buyers", value: stats.buyers, icon: "🛒", color: "teal" },
+    { label: "Fertilizer Sellers", value: stats.fertilizerSellers, icon: "🧪", color: "yellow" },
+    { label: "Delivery Partners", value: stats.deliveryPartners, icon: "🚚", color: "red" },
+    { label: "Total Products", value: stats.totalProducts, icon: "🌱", color: "emerald" },
   ];
+
+  const navItems = [
+    { key: "dashboard", icon: "📊", label: "Dashboard" },
+    { key: "verification", icon: "✅", label: "Farmer Verification" },
+    { key: "users", icon: "👥", label: "User Management" },
+    { key: "products", icon: "🌱", label: "Products" },
+    { key: "orders", icon: "📦", label: "Orders" },
+  ];
+
+  const renderContent = () => {
+    if (loading) return <div className="loading-state"><div className="spinner" /><p>Loading...</p></div>;
+    if (error) return <div className="error-banner">{error} <button onClick={loadDashboard}>Retry</button></div>;
+
+    switch (activeSection) {
+      case "verification":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <div>
+                <h3>Farmer Verification Management</h3>
+                <p className="subtext">Review and approve farmer applications</p>
+              </div>
+            </div>
+
+            {actionMsg && (
+              <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>
+            )}
+
+            <div className="verification-filter-bar">
+              {["pending", "more_information_required", "verified", "rejected", "not_submitted"].map(s => (
+                <button
+                  key={s}
+                  className={`filter-pill ${verificationFilter === s ? "active" : ""}`}
+                  onClick={() => setVerificationFilter(s)}
+                >
+                  {s.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
+
+            {pendingFarmers.length === 0 ? (
+              <div className="empty-state-box">
+                <div className="empty-icon">✅</div>
+                <h4>No farmers in this status</h4>
+                <p>Switch filters to view different groups.</p>
+              </div>
+            ) : (
+              <div className="verification-list">
+                {pendingFarmers.map(farmer => (
+                  <div key={farmer._id} className="verification-card">
+                    <div className="verification-card-header">
+                      <div className="farmer-info">
+                        <div className="farmer-avatar">{farmer.firstName?.[0] || "F"}</div>
+                        <div>
+                          <h4>{farmer.firstName} {farmer.lastName}</h4>
+                          <p>{farmer.email} | {farmer.phone}</p>
+                          <span className={`status-pill status-${farmer.verificationStatus}`}>
+                            {farmer.verificationStatus?.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="submitted-date">
+                        {farmer.verificationDocuments?.submittedAt && (
+                          <p>Submitted: {new Date(farmer.verificationDocuments.submittedAt).toLocaleDateString()}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {farmer.verificationDocuments?.additionalNotes && (
+                      <div className="farmer-notes">
+                        <strong>Farmer's Note:</strong> {farmer.verificationDocuments.additionalNotes}
+                      </div>
+                    )}
+
+                    {farmer.verificationDocuments?.gpsCoordinates?.latitude && (
+                      <div className="farmer-notes">
+                        <strong>GPS:</strong> {farmer.verificationDocuments.gpsCoordinates.latitude.toFixed(4)}, {farmer.verificationDocuments.gpsCoordinates.longitude.toFixed(4)}
+                      </div>
+                    )}
+
+                    <div className="review-note-input">
+                      <input
+                        type="text"
+                        placeholder="Admin notes (optional)"
+                        value={reviewNotes[farmer._id] || ""}
+                        onChange={e => setReviewNotes(prev => ({ ...prev, [farmer._id]: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="verification-actions">
+                      <button
+                        className="btn-approve"
+                        disabled={actionLoading[farmer._id]}
+                        onClick={() => handleVerification(farmer._id, "verified", reviewNotes[farmer._id], "")}
+                      >
+                        ✅ Approve
+                      </button>
+                      <button
+                        className="btn-reject"
+                        disabled={actionLoading[farmer._id]}
+                        onClick={() => {
+                          const reason = reviewNotes[farmer._id] || "Application does not meet requirements.";
+                          handleVerification(farmer._id, "rejected", "", reason);
+                        }}
+                      >
+                        ❌ Reject
+                      </button>
+                      <button
+                        className="btn-info"
+                        disabled={actionLoading[farmer._id]}
+                        onClick={() => handleVerification(farmer._id, "more_information_required", "", "", reviewNotes[farmer._id] || "Please provide additional documents.")}
+                      >
+                        🔵 Request Info
+                      </button>
+                      <button
+                        className="btn-suspend"
+                        disabled={actionLoading[farmer._id]}
+                        onClick={() => handleSuspendUser(farmer._id, farmer.isActive ? "suspend" : "activate")}
+                      >
+                        {farmer.isActive ? "🚫 Suspend" : "▶️ Activate"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+
+      case "users":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>User Management</h3>
+              <p className="subtext">All registered platform users</p>
+            </div>
+            {actionMsg && <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>}
+            <div className="table-responsive-container">
+              <table className="custom-dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allUsers.map(u => (
+                    <tr key={u._id}>
+                      <td>{u.firstName} {u.lastName}</td>
+                      <td><span className="role-badge">{u.role}</span></td>
+                      <td>{u.email}</td>
+                      <td>{u.phone}</td>
+                      <td>
+                        <span className={`status-pill ${u.isActive ? "status-confirmed" : "status-cancelled"}`}>
+                          {u.isActive ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className={u.isActive ? "btn-reject" : "btn-approve"}
+                          style={{ padding: "4px 10px", fontSize: "0.75rem" }}
+                          disabled={actionLoading[u._id]}
+                          onClick={() => handleSuspendUser(u._id, u.isActive ? "suspend" : "activate")}
+                        >
+                          {u.isActive ? "Suspend" : "Activate"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+
+      case "products":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>Product Listings</h3>
+              <p className="subtext">All products on the platform</p>
+            </div>
+            {actionMsg && <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>}
+            {allProducts.length === 0 ? (
+              <div className="empty-state-box"><div className="empty-icon">🌱</div><h4>No products</h4></div>
+            ) : (
+              <div className="table-responsive-container">
+                <table className="custom-dashboard-table">
+                  <thead>
+                    <tr><th>Product</th><th>Type</th><th>Price</th><th>Stock</th><th>Seller</th><th>Status</th><th>Actions</th></tr>
+                  </thead>
+                  <tbody>
+                    {allProducts.map(p => (
+                      <tr key={p._id}>
+                        <td>{p.name}</td>
+                        <td><span className="category-pill">{p.category}</span></td>
+                        <td>₹{p.price}</td>
+                        <td>{p.quantity} {p.unit}</td>
+                        <td>{p.sellerName || p.seller?.firstName}</td>
+                        <td>
+                          <span className={`status-pill ${p.isActive ? "status-confirmed" : "status-cancelled"}`}>
+                            {p.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            className="btn-reject"
+                            style={{ padding: "4px 10px", fontSize: "0.75rem" }}
+                            onClick={() => handleDeleteProduct(p._id)}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      case "orders":
+        return (
+          <div className="dashboard-section-card">
+            <div className="section-card-header">
+              <h3>All Orders</h3>
+              <p className="subtext">Platform order history</p>
+            </div>
+            {allOrders.length === 0 ? (
+              <div className="empty-state-box"><div className="empty-icon">📦</div><h4>No orders yet</h4></div>
+            ) : (
+              <div className="table-responsive-container">
+                <table className="custom-dashboard-table">
+                  <thead>
+                    <tr><th>Order #</th><th>Buyer</th><th>Items</th><th>Amount</th><th>Payment</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    {allOrders.map(o => (
+                      <tr key={o._id}>
+                        <td style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>{o.orderNumber || o._id?.substring(0, 10)}</td>
+                        <td>{o.buyer?.firstName} {o.buyer?.lastName}</td>
+                        <td>{o.items?.length} item(s)</td>
+                        <td>₹{o.totalAmount}</td>
+                        <td><span className="category-pill">{o.payment?.method}</span></td>
+                        <td><span className={`status-pill status-${o.status}`}>{o.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+
+      default: // dashboard
+        return (
+          <>
+            <div className="kpi-grid">
+              {platformStats.map((stat, idx) => (
+                <div className="kpi-card" key={idx} data-color={stat.color}>
+                  <div className="kpi-icon">{stat.icon}</div>
+                  <div className="kpi-content">
+                    <p className="kpi-label">{stat.label}</p>
+                    <h3 className="kpi-value">{stat.value}</h3>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="dashboard-section-card" style={{ marginTop: "1.5rem" }}>
+              <div className="section-card-header">
+                <h3>Recent Users</h3>
+                <button className="btn-text-link" onClick={() => setActiveSection("users")}>View All →</button>
+              </div>
+              <div className="table-responsive-container">
+                <table className="custom-dashboard-table">
+                  <thead>
+                    <tr><th>Name</th><th>Role</th><th>Email</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    {recentUsers.map(u => (
+                      <tr key={u._id}>
+                        <td>{u.firstName} {u.lastName}</td>
+                        <td><span className="role-badge">{u.role}</span></td>
+                        <td>{u.email}</td>
+                        <td>
+                          <span className={`status-pill ${u.isActive ? "status-confirmed" : "status-cancelled"}`}>
+                            {u.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="dashboard-section-card" style={{ marginTop: "1.5rem" }}>
+              <h3>Platform Health</h3>
+              <div className="health-metrics">
+                <div className="health-item"><span className="health-label">Server Status</span><span className="health-value green">● Online</span></div>
+                <div className="health-item"><span className="health-label">Database</span><span className="health-value green">● Connected</span></div>
+                <div className="health-item"><span className="health-label">API</span><span className="health-value green">● Operational</span></div>
+              </div>
+            </div>
+          </>
+        );
+    }
+  };
 
   return (
     <div className="admin-dashboard-page">
       <div className="admin-topbar">
         <div className="admin-topbar-inner">
           <div className="admin-brand">🌱 AgroConnect</div>
-          <div className="admin-title">{t("adminControlCenter")}</div>
+          <div className="admin-title">Admin Control Center</div>
           <div className="admin-topbar-right">
-            <HeaderControls />
-            <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
-              {t("logout")}
-            </button>
+            <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>Logout</button>
             <div className="profile-circle">A</div>
           </div>
         </div>
@@ -200,431 +469,24 @@ const AdminDashboard = () => {
 
       <div className="admin-layout">
         <div className="admin-sidebar">
-          <h3 className="sidebar-title">⚙️ {t("adminPanelTitle")}</h3>
-
-          <div className={`sidebar-item ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>{t("dashboard")}</div>
-          <div className={`sidebar-item ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")}>{t("userManagement")}</div>
-          <div className={`sidebar-item ${activeTab === "orders" ? "active" : ""}`} onClick={() => setActiveTab("orders")}>{t("ordersAndSales")}</div>
-          <div className={`sidebar-item ${activeTab === "products" ? "active" : ""}`} onClick={() => setActiveTab("products")}>{t("products")}</div>
-          <div className={`sidebar-item ${activeTab === "deliveries" ? "active" : ""}`} onClick={() => setActiveTab("deliveries")}>{t("deliveries")}</div>
-          <div className={`sidebar-item ${activeTab === "verifications" ? "active" : ""}`} onClick={() => setActiveTab("verifications")}>{t("verificationRequests")}</div>
-          <div className={`sidebar-item ${activeTab === "reports" ? "active" : ""}`} onClick={() => setActiveTab("reports")}>{t("reports")}</div>
-          <div className={`sidebar-item ${activeTab === "settings" ? "active" : ""}`} onClick={() => setActiveTab("settings")}>{t("settings")}</div>
-          <div className={`sidebar-item ${activeTab === "auditLogs" ? "active" : ""}`} onClick={() => setActiveTab("auditLogs")}>{t("auditLogs")}</div>
-          <div className="sidebar-item" onClick={() => { logout(); navigate("/login"); }}>{t("logout")}</div>
+          <h3 className="sidebar-title">⚙️ Admin Panel</h3>
+          {navItems.map(item => (
+            <div
+              key={item.key}
+              className={`sidebar-item ${activeSection === item.key ? "active" : ""}`}
+              onClick={() => setActiveSection(item.key)}
+            >
+              <span>{item.icon}</span> {item.label}
+            </div>
+          ))}
         </div>
 
         <div className="admin-main">
-          {loading && (
-            <div className="loading">{t("loading")}</div>
-          )}
-
-          {!loading && activeTab === "dashboard" && (
-            <>
-              {/* Welcome Section */}
-              <div className="admin-welcome">
-                <h2>{t("welcomeAdmin")}</h2>
-                <p>{t("adminSubtitle")}</p>
-              </div>
-
-              {/* KPI Stats */}
-              <div className="kpi-grid">
-                {platformStats.map((stat, idx) => (
-                  <div className="kpi-card" key={idx} data-color={stat.color}>
-                    <div className="kpi-icon">{stat.icon}</div>
-                    <div className="kpi-content">
-                      <p className="kpi-label">{stat.label}</p>
-                      <h3 className="kpi-value">{stat.value}</h3>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Quick Actions */}
-              <div className="admin-section">
-                <h3>{t("quickActions")}</h3>
-                <div className="quick-actions-grid">
-                  <div className="quick-action-card" onClick={() => setActiveTab("users")}>
-                    <h4>👥 {t("manageUsers")}</h4>
-                    <p>{t("manageUsersDesc")}</p>
-                    <button>{t("goToUsers")}</button>
-                  </div>
-
-                  <div className="quick-action-card" onClick={() => setActiveTab("orders")}>
-                    <h4>📊 {t("viewOrders")}</h4>
-                    <p>{t("viewOrdersDesc")}</p>
-                    <button>{t("viewOrdersButton")}</button>
-                  </div>
-
-                  <div className="quick-action-card" onClick={() => setActiveTab("products")}>
-                    <h4>📦 {t("manageProducts")}</h4>
-                    <p>{t("manageProductsDesc")}</p>
-                    <button>{t("viewProductsButton")}</button>
-                  </div>
-
-                  <div className="quick-action-card" onClick={() => setActiveTab("deliveries")}>
-                    <h4>🚚 {t("trackDeliveries")}</h4>
-                    <p>{t("trackDeliveriesDesc")}</p>
-                    <button>{t("viewDeliveriesButton")}</button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {!loading && activeTab === "users" && (
-            <div className="admin-section">
-              <div className="section-header">
-                  <h3>{t("userManagement")}</h3>
-                  <div className="filters">
-                    <input
-                      type="text"
-                      placeholder={t("searchUsers")}
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
-                      <option value="">{t("allRoles")}</option>
-                      <option value="buyer">{t("buyers")}</option>
-                      <option value="farmer">{t("farmers")}</option>
-                      <option value="fertilizer_seller">{t("fertilizerSellers")}</option>
-                      <option value="delivery_partner">{t("deliveryPartners")}</option>
-                      <option value="admin">{t("admins")}</option>
-                    </select>
-                </div>
-              </div>
-
-              <div className="table-wrapper">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>{t("name")}</th>
-                      <th>{t("email")}</th>
-                      <th>{t("role")}</th>
-                      <th>{t("status")}</th>
-                      <th>{t("joined")}</th>
-                      <th>{t("actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user._id}>
-                        <td>{user.firstName} {user.lastName}</td>
-                        <td>{user.email}</td>
-                        <td><span className="role-badge">{user.role}</span></td>
-                        <td>
-                          <span className={`status-badge ${user.isActive ? 'active' : 'inactive'}`}>
-                            {user.isActive ? t("active") : t("inactive")}
-                          </span>
-                        </td>
-                        <td>{new Date(user.createdAt).toLocaleDateString()}</td>
-                        <td className="actions-cell">
-                          <button
-                            className={`action-btn ${user.isActive ? 'danger' : 'success'}`}
-                            onClick={() => handleUserStatusToggle(user._id, user.isActive)}
-                          >
-                            {user.isActive ? t("deactivate") : t("activate")}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "orders" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("ordersAndSales")}</h3>
-                <div className="filters">
-                  <input
-                    type="text"
-                    placeholder={t("searchOrders")}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="table-wrapper">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>{t("orderId")}</th>
-                      <th>{t("buyer")}</th>
-                      <th>{t("items")}</th>
-                      <th>{t("total")}</th>
-                      <th>{t("status")}</th>
-                      <th>{t("date")}</th>
-                      <th>{t("actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order._id}>
-                        <td className="order-id">#{order._id.slice(-8)}</td>
-                        <td>{order.buyer?.firstName} {order.buyer?.lastName}</td>
-                        <td>{order.items?.length} items</td>
-                        <td>₹{order.totalPrice}</td>
-                        <td>
-                          <select
-                            value={order.status}
-                            onChange={(e) => handleOrderStatusUpdate(order._id, e.target.value)}
-                          >
-                            <option value="pending">{t("pending")}</option>
-                            <option value="confirmed">{t("confirmed")}</option>
-                            <option value="processing">{t("processing")}</option>
-                            <option value="shipped">{t("shipped")}</option>
-                            <option value="delivered">{t("delivered")}</option>
-                            <option value="cancelled">{t("cancelled")}</option>
-                          </select>
-                        </td>
-                        <td>{new Date(order.createdAt).toLocaleDateString()}</td>
-                        <td className="actions-cell">
-                          <button className="action-link">👁️ View</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "products" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("products")}</h3>
-                <div className="filters">
-                  <input
-                    type="text"
-                    placeholder={t("searchProducts")}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="table-wrapper">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>{t("product")}</th>
-                      <th>{t("seller")}</th>
-                      <th>{t("category")}</th>
-                      <th>{t("price")}</th>
-                      <th>{t("stock")}</th>
-                      <th>{t("status")}</th>
-                      <th>{t("actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map((product) => (
-                      <tr key={product._id}>
-                        <td>{product.name}</td>
-                        <td>{product.seller?.firstName} {product.seller?.lastName}</td>
-                        <td>{product.category}</td>
-                        <td>₹{product.price}</td>
-                        <td>{product.quantity}</td>
-                        <td>
-                          <span className={`status-badge ${product.isActive ? 'active' : 'inactive'}`}>
-                            {product.isActive ? t("active") : t("inactive")}
-                          </span>
-                        </td>
-                        <td className="actions-cell">
-                          <button className="action-link">{t("view")}</button>
-                          <button className="action-link danger" onClick={() => handleProductDelete(product._id)}>
-                            🗑️ {t("delete")}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "verifications" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("verificationRequests")}</h3>
-                <div className="filters">
-                  <input
-                    type="text"
-                    placeholder={t("searchVerifications")}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="table-wrapper">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>{t("name")}</th>
-                      <th>{t("email")}</th>
-                      <th>{t("role")}</th>
-                      <th>{t("status")}</th>
-                      <th>{t("submitted")}</th>
-                      <th>{t("documents")}</th>
-                      <th>{t("actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {verifications.length ? (
-                      verifications.map((item) => (
-                        <tr key={item._id}>
-                          <td>{item.firstName} {item.lastName}</td>
-                          <td>{item.email}</td>
-                          <td>{item.role}</td>
-                          <td>
-                            <span className={`status-badge ${item.verification?.status || 'not_submitted'}`}>
-                              {item.verification?.status?.replace(/_/g, ' ') || 'not submitted'}
-                            </span>
-                          </td>
-                          <td>
-                            {item.verification?.submittedAt
-                              ? new Date(item.verification.submittedAt).toLocaleDateString()
-                              : '—'}
-                          </td>
-                          <td>
-                            {/* Documents column: show links to uploaded files if present */}
-                            {(() => {
-                              const docs = [];
-                              const v = item.verification || {};
-                              if (v.identityDocumentUrl) docs.push({ label: 'ID', url: v.identityDocumentUrl });
-                              if (v.farmingProofUrl) docs.push({ label: 'Proof', url: v.farmingProofUrl });
-                              if (v.farmPhotoUrl) docs.push({ label: 'Farm', url: v.farmPhotoUrl });
-                              if (v.shopCertificateUrl) docs.push({ label: 'Certificate', url: v.shopCertificateUrl });
-                              if (v.shopPhotoUrl) docs.push({ label: 'Shop', url: v.shopPhotoUrl });
-
-                              return docs.length ? (
-                                <div className="doc-links">
-                                  {docs.map((d, idx) => (
-                                    <a key={idx} href={d.url} target="_blank" rel="noopener noreferrer" className="doc-link">{d.label}</a>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span>—</span>
-                              );
-                            })()}
-                          </td>
-                          <td className="actions-cell">
-                            <button className="action-btn success" onClick={() => handleVerificationReview(item._id, 'verified')}>
-                              {t("approve")}
-                            </button>
-                            <button className="action-btn danger" onClick={() => handleVerificationReview(item._id, 'rejected')}>
-                              {t("reject")}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="6" style={{ padding: '20px', textAlign: 'center' }}>
-                          {t("noVerificationRequests")}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "deliveries" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("deliveries")}</h3>
-                <div className="filters">
-                  <input
-                    type="text"
-                    placeholder={t("searchDeliveries")}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="table-wrapper">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>{t("deliveryId")}</th>
-                      <th>{t("partner")}</th>
-                      <th>{t("recipient")}</th>
-                      <th>{t("type")}</th>
-                      <th>{t("status")}</th>
-                      <th>{t("date")}</th>
-                      <th>{t("actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deliveries.map((delivery) => (
-                      <tr key={delivery._id}>
-                        <td className="order-id">{delivery.deliveryNumber}</td>
-                        <td>{delivery.deliveryPartner?.firstName} {delivery.deliveryPartner?.lastName}</td>
-                        <td>{delivery.recipientName}</td>
-                        <td>{delivery.type}</td>
-                        <td>
-                          <span className={`status-badge ${delivery.status}`}>
-                            {delivery.status}
-                          </span>
-                        </td>
-                        <td>{new Date(delivery.createdAt).toLocaleDateString()}</td>
-                        <td className="actions-cell">
-                          <button className="action-link">👁️ View</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "reports" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("reports")}</h3>
-              </div>
-              <div className="placeholder-card">
-                <p>{t("reports")} content will be available here soon.</p>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "settings" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("settings")}</h3>
-              </div>
-              <div className="placeholder-card">
-                <p>{t("settings")} content will be available here soon.</p>
-              </div>
-            </div>
-          )}
-
-          {!loading && activeTab === "auditLogs" && (
-            <div className="admin-section">
-              <div className="section-header">
-                <h3>{t("auditLogs")}</h3>
-              </div>
-              <div className="placeholder-card">
-                <p>{t("auditLogs")} content will be available here soon.</p>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="error-message">
-              {error}
-            </div>
-          )}
+          <div className="admin-welcome">
+            <h2>Welcome to AgroConnect Admin Panel 🚀</h2>
+            <p>Manage users, verify farmers, monitor platform activities</p>
+          </div>
+          {renderContent()}
         </div>
       </div>
     </div>

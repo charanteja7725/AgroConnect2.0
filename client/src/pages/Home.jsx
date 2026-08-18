@@ -1,14 +1,28 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaMicrophone, FaSearch, FaTruck } from "react-icons/fa";
 import { MdOutlineAgriculture } from "react-icons/md";
 import { FiShoppingCart } from "react-icons/fi";
-import { useLanguage } from "../context/LanguageContext.jsx";
+import { useAuth } from "../context/AppHooks.js";
 import "./home.css";
+
+const roleHomeMap = {
+  farmer: "/farmer",
+  buyer: "/buyer",
+  fertilizer_seller: "/fertilizer",
+  delivery_partner: "/delivery",
+  admin: "/admin",
+};
 
 function Home() {
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      navigate(roleHomeMap[user.role] || "/");
+    }
+  }, [user, navigate]);
 
   return (
     <div className="home">
@@ -17,12 +31,12 @@ function Home() {
       <div className="navbar">
         <div className="logo">
           <MdOutlineAgriculture size={20} />
-          <span>{t("appName")}</span>
+          <span>AgroConnect</span>
         </div>
 
         <div className="nav-buttons">
-          <button onClick={() => navigate("/login")}>{t("login")}</button>
-          <button className="register" onClick={() => navigate("/roles")}>{t("register")}</button>
+          <button onClick={() => navigate("/login")}>Login</button>
+          <button className="register" onClick={() => navigate("/roles")}>Register</button>
         </div>
       </div>
 
@@ -35,10 +49,10 @@ function Home() {
               <FaMicrophone />
             </div>
 
-            <h1>{t("heroTitle")}</h1>
+            <h1>Voice Assisted Farmer-to-Consumer Marketplace</h1>
 
             <p>
-              {t("heroDescription")}
+              Connecting farmers directly with consumers. Simple, accessible, and powered by voice technology.
             </p>
 
             {/* SEARCH BAR */}
@@ -47,7 +61,7 @@ function Home() {
                 <option>All Areas</option>
               </select>
 
-              <input placeholder={t("searchPlaceholder")} />
+              <input placeholder="Search fresh vegetables, fruits, grains..." />
 
               <span className="mic-icon">
                 <FaMicrophone />
@@ -62,7 +76,7 @@ function Home() {
   className="start-btn" 
   onClick={() => navigate("/roles")}
 >
-  {t("getStarted")}
+  Get Started
 </button>
 
           </div>
@@ -71,7 +85,7 @@ function Home() {
 
       {/* WHO WE SERVE */}
       <div className="serve">
-        <h2>{t("whoWeServeTitle")}</h2>
+        <h2>Who We Serve</h2>
 
         <div className="cards">
 
@@ -80,9 +94,11 @@ function Home() {
             <div className="card-icon">
               <MdOutlineAgriculture size={24} />
             </div>
-            <h3>{t("farmerCardTitle")}</h3>
+            <h3>For Farmers</h3>
             <ul>
-              <li>{t("farmerCardBenefits")}</li>
+              <li>List products with voice commands</li>
+              <li>Manage orders easily</li>
+              <li>Track earnings</li>
             </ul>
           </div>
 
@@ -91,9 +107,11 @@ function Home() {
             <div className="card-icon">
               <FiShoppingCart size={24} />
             </div>
-            <h3>{t("customerCardTitle")}</h3>
+            <h3>For Customers</h3>
             <ul>
-              <li>{t("customerCardBenefits")}</li>
+              <li>Browse fresh produce nearby</li>
+              <li>Compare prices easily</li>
+              <li>Order with a few taps</li>
             </ul>
           </div>
 
@@ -102,9 +120,11 @@ function Home() {
             <div className="card-icon">
               <FaTruck size={24} />
             </div>
-            <h3>{t("deliveryCardTitle")}</h3>
+            <h3>For Delivery Partners</h3>
             <ul>
-              <li>{t("deliveryCardBenefits")}</li>
+              <li>Accept delivery requests</li>
+              <li>Update delivery status</li>
+              <li>Earn by delivering</li>
             </ul>
           </div>
 
@@ -113,26 +133,26 @@ function Home() {
 
       {/* STEPS SECTION */}
       <div className="steps">
-        <h2>{t("simpleAccessible")}</h2>
+        <h2>Simple & Accessible</h2>
 
         <div className="step-container">
 
           <div className="step">
             <div className="circle">1</div>
-            <h4>{t("chooseRoleStep")}</h4>
-            <p>{t("chooseRoleSubtitle")}</p>
+            <h4>Choose Your Role</h4>
+            <p>Farmer, Customer, or Delivery Partner</p>
           </div>
 
           <div className="step">
             <div className="circle">2</div>
-            <h4>{t("voiceOrTextStep")}</h4>
-            <p>{t("voiceOrTextStep")}</p>
+            <h4>Use Voice or Text</h4>
+            <p>Easy input with voice assistance</p>
           </div>
 
           <div className="step">
             <div className="circle">3</div>
-            <h4>{t("startTradingStep")}</h4>
-            <p>{t("startTradingStep")}</p>
+            <h4>Start Trading</h4>
+            <p>Buy, sell, or deliver with ease</p>
           </div>
 
         </div>
@@ -140,8 +160,8 @@ function Home() {
 
       {/* FOOTER */}
       <div className="footer">
-        <p>{t("appName")}</p>
-        <span>{t("footerTagline")}</span>
+        <p>AgroConnect</p>
+        <span>Empowering farmers, serving customers</span>
       </div>
 
     </div>

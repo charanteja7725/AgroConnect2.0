@@ -77,9 +77,24 @@ const sendDeliveryUpdate = async (delivery, user) => {
   return sendEmail(user.email, subject, html);
 };
 
+const sendPasswordResetEmail = async (email, resetUrl) => {
+  const subject = 'Password Reset Request - AgroConnect';
+  const html = `
+    <h1>Password Reset Request</h1>
+    <p>We received a request to reset your password for your AgroConnect account.</p>
+    <p>Please click the link below to reset your password. This link is valid for 1 hour.</p>
+    <p><a href="${resetUrl}" style="background-color: #009933; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Reset Password</a></p>
+    <p>If you didn't request a password reset, you can safely ignore this email.</p>
+    <br>
+    <p>Best regards,<br>AgroConnect Team</p>
+  `;
+  return sendEmail(email, subject, html);
+};
+
 module.exports = {
   sendEmail,
   sendWelcomeEmail,
   sendOrderConfirmation,
   sendDeliveryUpdate,
+  sendPasswordResetEmail,
 };

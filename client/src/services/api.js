@@ -182,6 +182,28 @@ export const userAPI = {
         comment,
       }),
     }),
+
+  // Farmer Verification
+  submitVerification: (data) =>
+    apiRequest("/users/verify/submit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getPendingVerifications: (status = "pending") =>
+    apiRequest(`/users/verify/pending?status=${status}`),
+
+  reviewVerification: (farmerId, action, notes, rejectionReason, moreInfoRequest) =>
+    apiRequest(`/users/verify/${farmerId}`, {
+      method: "PUT",
+      body: JSON.stringify({ action, notes, rejectionReason, moreInfoRequest }),
+    }),
+
+  suspendUser: (userId, action) =>
+    apiRequest(`/users/${userId}/suspend`, {
+      method: "PUT",
+      body: JSON.stringify({ action }),
+    }),
 };
 
 // ============================================

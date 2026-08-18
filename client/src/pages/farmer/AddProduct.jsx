@@ -1,15 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { productAPI, userAPI } from "../../services/api.js";
-import { useAuth, useNotification } from "../../context/AppContext.jsx";
-import { useLanguage } from "../../context/LanguageContext.jsx";
-import LocationService from "../../services/LocationService.js";
+import { productAPI, uploadAPI } from "../../services/api.js";
+import { useNotification } from "../../context/AppHooks.js";
+import { LocationService } from "../../services/LocationService.js";
 import "./addproduct.css";
 
 const AddProduct = () => {
-  const { t } = useLanguage();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { addNotification } = useNotification();
   const [productType, setProductType] = useState(
     window.location.pathname.includes("/fertilizer") ? "fertilizer" : "produce"
@@ -18,101 +15,80 @@ const AddProduct = () => {
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
   const [marketPrice, setMarketPrice] = useState("");
-  const [location, setLocation] = useState("");
-  const [currentLocation, setCurrentLocation] = useState(null);
+  const [locationText, setLocationText] = useState("");
+  const [locationCoords, setLocationCoords] = useState(null);
+  const [locationHint, setLocationHint] = useState("");
   const [locationLoading, setLocationLoading] = useState(false);
-  const [locationError, setLocationError] = useState("");
+  const [imagePreview, setImagePreview] = useState("");
   const [description, setDescription] = useState("");
   const [compositionN, setCompositionN] = useState("");
   const [compositionP, setCompositionP] = useState("");
   const [compositionK, setCompositionK] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [verificationStatus, setVerificationStatus] = useState("not_submitted");
-  const [loadingVerification, setLoadingVerification] = useState(true);
-
-  useEffect(() => {
-    const loadVerification = async () => {
-      try {
-        const data = await userAPI.getUser(user?._id);
-        setVerificationStatus(data?.user?.farmerVerification?.status || "not_submitted");
-      } catch (err) {
-        setVerificationStatus("not_submitted");
-      } finally {
-        setLoadingVerification(false);
-      }
-    };
-
-    if (user?._id) {
-      loadVerification();
-    }
-  }, [user?._id]);
 
   const suggestedPrice =
     marketPrice && quantity ? (Number(marketPrice) * 0.95).toFixed(2) : "";
 
-  const handleUseCurrentLocation = async () => {
-    setLocationLoading(true);
-    setLocationError("");
-
-    try {
-      const position = await LocationService.getCurrentLocation();
-      setCurrentLocation(position);
-      const address = await LocationService.reverseGeocode(position.latitude, position.longitude);
-      setLocation(address?.display_name || LocationService.formatCoordinates(position.latitude, position.longitude));
-    } catch (error) {
-      setLocationError(error.message || "Unable to get current location");
-    } finally {
-      setLocationLoading(false);
-    }
-  };
-
   return (
     <div className="add-product-page">
       <div className="add-product-header">
-        <h2>{t("addProductTitle")}</h2>
-        <p>{t("addProductDescription")}</p>
+        <h2>Add New Product</h2>
+        <p>List your farm produce with AI-assisted pricing</p>
       </div>
 
       <div className="add-product-container">
         <div className="add-product-form-card">
-          {loadingVerification ? (
-            <div className="verification-banner">{t("checkingVerificationStatus")}</div>
-          ) : verificationStatus !== "verified" ? (
-            <div className="verification-banner warning">
-              {verificationStatus === "pending" && t("verificationStatusPendingReview")}
-              {verificationStatus === "more_information_required" && t("verificationStatusWaitingInfo")}
-              {verificationStatus === "not_submitted" && t("verificationStatusNotApproved")}
-              {t("cannotPublishUntilApproved")}
-            </div>
-          ) : null}
           <div className="form-group">
-            <label>{t("productNameLabel")}</label>
+            <label>Product Type</label>
+            <select value={productType} onChange={(e) => setProductType(e.target.value)}>
+              <option value="produce">Produce</option>
+              <option value="fertilizer">Fertilizer</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Product Name</label>
             <input
               type="text"
-              placeholder={t("productNamePlaceholder")}
+              placeholder="Enter product name"
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
             />
           </div>
 
           <div className="form-group">
-            <label>{t("categoryLabel")}</label>
+            <label>Category</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
             >
-              <option value="">{t("selectCategory")}</option>
-              <option value="vegetables">Vegetables</option>
-              <option value="fruits">Fruits</option>
-              <option value="grains">Grains</option>
-              <option value="pulses">Pulses</option>
+              <option value="">Select category</option>
+              {productType === "fertilizer" ? (
+                <>
+                  <option value="npk">NPK Fertilizer</option>
+                  <option value="organic">Organic Fertilizer</option>
+                  <option value="pesticide">Pesticide</option>
+                  <option value="seeds">Seeds</option>
+                </>
+              ) : (
+                <>
+                  <option value="vegetables">Vegetables</option>
+                  <option value="fruits">Fruits</option>
+                  <option value="grains">Grains</option>
+                  <option value="vegetables">Vegetables</option>
+                  <option value="fruits">Fruits</option>
+                  <option value="grains">Grains</option>
+                  <option value="seeds">Seeds</option>
+                  <option value="equipment">Equipment</option>
+                </>
+              )}
             </select>
           </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label>Quantity (kg)</label>
+              <label>Quantity</label>
               <input
                 type="number"
                 placeholder="Enter quantity"
@@ -122,10 +98,10 @@ const AddProduct = () => {
             </div>
 
             <div className="form-group">
-              <label>Market Price (₹/kg)</label>
+              <label>Price (₹)</label>
               <input
                 type="number"
-                placeholder="Enter market price"
+                placeholder="Enter price"
                 value={marketPrice}
                 onChange={(e) => setMarketPrice(e.target.value)}
               />
@@ -133,28 +109,61 @@ const AddProduct = () => {
           </div>
 
           <div className="form-group">
-            <label>{t("locationLabel")}</label>
-            <div className="location-field-wrapper">
-              <input
-                type="text"
-                placeholder={t("enterLocationPlaceholder")}
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-              />
+            <label>Location / Address</label>
+            <input
+              type="text"
+              placeholder="Enter product address"
+              value={locationText}
+              onChange={(e) => setLocationText(e.target.value)}
+            />
+            <div className="location-actions">
               <button
                 type="button"
                 className="location-btn"
-                onClick={handleUseCurrentLocation}
                 disabled={locationLoading}
+                onClick={async () => {
+                  setLocationLoading(true);
+                  try {
+                    const userLocation = await LocationService.getCurrentLocation();
+                    setLocationCoords(userLocation);
+                    const address = await LocationService.reverseGeocode(
+                      userLocation.latitude,
+                      userLocation.longitude
+                    );
+                    const formattedAddress = address
+                      ? `${address.road || ""} ${address.city || address.town || address.village || ""} ${address.state || ""}`.trim()
+                      : LocationService.formatCoordinates(userLocation.latitude, userLocation.longitude);
+                    setLocationText(formattedAddress);
+                    setLocationHint("Using current GPS location");
+                  } catch (err) {
+                    addNotification(err.message || "Unable to get current location", "error");
+                  } finally {
+                    setLocationLoading(false);
+                  }
+                }}
               >
-                {locationLoading ? t("locating") : `${t("useCurrentLocation")}`}
+                {locationLoading ? "Locating..." : "📍 Use My Current Location"}
+              </button>
+              <button
+                type="button"
+                className="location-btn"
+                onClick={() => {
+                  setLocationText("");
+                  setLocationCoords(null);
+                  setLocationHint("");
+                }}
+              >
+                Clear
               </button>
             </div>
-            {locationError && <p className="location-error">{locationError}</p>}
+            {locationHint && <p className="location-hint">{locationHint}</p>}
+            {locationCoords && (
+              <p className="location-hint">Selected location: {locationText || LocationService.formatCoordinates(locationCoords.latitude, locationCoords.longitude)}</p>
+            )}
           </div>
 
           <div className="form-group">
-            <label>{t("uploadProductImage")}</label>
+            <label>Upload Product Image</label>
             <input
               type="file"
               accept="image/*"
@@ -172,9 +181,9 @@ const AddProduct = () => {
           </div>
 
           <div className="form-group">
-            <label>{t("descriptionLabel")}</label>
+            <label>Description</label>
             <textarea
-              placeholder={t("descriptionPlaceholder")}
+              placeholder="Write short product description..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -223,11 +232,6 @@ const AddProduct = () => {
                 return;
               }
 
-              if (!locationCoords || !locationCoords.latitude || !locationCoords.longitude) {
-                addNotification("Product location is required. Please use current location.", "error");
-                return;
-              }
-
               setSubmitting(true);
               try {
                 let imagePayload = [];
@@ -255,17 +259,21 @@ const AddProduct = () => {
                   price: Number(marketPrice),
                   quantity: Number(quantity),
                   unit: "kg",
-                  images: imageUrl ? [{ url: imageUrl, alt: productName }] : [],
-                  address: location,
-                  location: currentLocation
-                    ? {
-                        type: "Point",
-                        coordinates: [currentLocation.longitude, currentLocation.latitude],
-                      }
-                    : {
-                        type: "Point",
-                        coordinates: [0, 0],
-                      },
+                  images: imagePayload,
+                  address: locationText,
+                  location: {
+                    type: "Point",
+                    coordinates: locationCoords ? [locationCoords.longitude, locationCoords.latitude] : [0, 0],
+                    address: locationText || "",
+                  },
+                  composition:
+                    productType === "fertilizer"
+                      ? {
+                          nitrogen: Number(compositionN) || 0,
+                          phosphorus: Number(compositionP) || 0,
+                          potassium: Number(compositionK) || 0,
+                        }
+                      : undefined,
                 });
 
                 addNotification("Product added successfully", "success");
@@ -286,19 +294,22 @@ const AddProduct = () => {
                 setSubmitting(false);
               }
             }}
-            disabled={submitting || verificationStatus !== "verified"}
+            disabled={submitting}
           >
-            {submitting ? t("adding") : verificationStatus === "verified" ? t("addProductButton") : t("verificationRequired")}
+            {submitting ? "Adding..." : productType === "fertilizer" ? "Add Fertilizer" : "Add Product"}
           </button>
         </div>
 
         <div className="ai-price-card">
-            <h3>{t("aiPriceSuggestion")}</h3>
-            <p>{t("priceSuggestionDescription")}</p>
+          <h3>AI Price Suggestion</h3>
+          <p>
+            Based on market trends, demand, and your location, the suggested
+            selling price is:
+          </p>
 
-            <div className="price-box">
-              {suggestedPrice ? `₹${suggestedPrice} / kg` : t("enterDetailsFirst")}
-            </div>
+          <div className="price-box">
+            {suggestedPrice ? `₹${suggestedPrice} / kg` : "Enter details first"}
+          </div>
 
           <div className="ai-note">
             <strong>How this is calculated:</strong>

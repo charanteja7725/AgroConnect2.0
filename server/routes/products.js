@@ -5,169 +5,154 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// @route   POST /api/products
-// @desc    Create a new product
-// @access  Private/Farmer
-router.post("/", protect, authorize("farmer", "fertilizer_seller"), async (req, res) => {
-  try {
-    const user = req.user;
-
-    const roleVerificationStatus =
-      user.role === "farmer"
-        ? user.farmerVerification?.status
-        : user.role === "fertilizer_seller"
-        ? user.sellerVerification?.status
-        : "verified";
-
-    if (["farmer", "fertilizer_seller"].includes(user.role) && roleVerificationStatus !== "verified") {
-      return res.status(403).json({
-        error: `Your ${user.role === "farmer" ? "farmer" : "seller"} verification is not approved yet. Please complete verification first.`,
-      });
-    }
-
-    const { name, description, type, category, price, quantity, unit, images, address, location, sellerName } = req.body;
-
-    if (!name || !description || !type || !category || !price || !quantity) {
-      return res.status(400).json({ error: "Please provide all required product fields" });
-    }
-
-    const product = await Product.create({
-      name,
-      description,
-      type,
-      category,
-      seller: user._id,
-      sellerName: sellerName || `${user.firstName} ${user.lastName}`,
-      price,
-      quantity,
-      unit: unit || "kg",
-      images: images || [],
-      address,
-      location: location || { type: "Point", coordinates: [0, 0] },
-      isActive: true,
-      inStock: true,
-    });
-
-    res.status(201).json({ success: true, product });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // @route   GET /api/products
-// @desc    Get all products with filtering, geolocation and sorting
+// @desc    Get all products with filtering and pagination
 // @access  Public
 router.get("/", async (req, res) => {
   try {
-    const {
-      category,
-      minPrice,
-      maxPrice,
-      search,
-      latitude,
-      longitude,
-      maxDistance,
-      sortBy,
-      page = 1,
-      limit = 20,
-    } = req.query;
+    const { category, minPrice, maxPrice, search, latitude, longitude, maxDistance, sortBy, page = 1, limit = 20 } =
+      req.query;
 
     const pageNum = Math.max(1, parseInt(page));
-    const pageSize = Math.min(100, parseInt(limit) || 20);
+    const pageSize = Math.min(100, Math.max(1, parseInt(limit) || 20));
     const skip = (pageNum - 1) * pageSize;
 
-    // -----------------------
-    // Build Match Query
-    // -----------------------
+    let query = { isActive: true, inStock: true };
 
-    const matchQuery = {
-      isActive: true,
-      inStock: true,
-    };
+    // Type filter
+    if (req.query.type) {
+      query.type = req.query.type;
+    }
 
+    // Category filter
     if (category) {
-      matchQuery.category = category;
+      query.category = category;
     }
 
+    // Price filter
     if (minPrice || maxPrice) {
-      matchQuery.price = {};
-
-      if (minPrice) matchQuery.price.$gte = parseFloat(minPrice);
-      if (maxPrice) matchQuery.price.$lte = parseFloat(maxPrice);
+      query.price = {};
+      if (minPrice) query.price.$gte = parseFloat(minPrice);
+      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
     }
 
+    // Regex search (handles partial matches and does not require text index)
     if (search) {
-      matchQuery.$text = {
-        $search: search,
-      };
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { category: { $regex: search, $options: "i" } }
+      ];
     }
 
-    // -----------------------
-    // Sort Options
-    // -----------------------
-
-    let sortOptions = {};
-
-    switch (sortBy) {
-      case "price_low":
-        sortOptions = { price: 1 };
-        break;
-
-      case "price_high":
-        sortOptions = { price: -1 };
-        break;
-
-      case "rating":
-        sortOptions = { rating: -1 };
-        break;
-
-      case "newest":
-        sortOptions = { createdAt: -1 };
-        break;
-
-      default:
-        sortOptions = { createdAt: -1 };
-    }
-
-    let products;
-    let total = 0;
-
-    // ==================================================
-    // CASE 1 : User searching nearby products
-    // ==================================================
+    // Geolocation filter
+    let products = [];
     if (latitude && longitude) {
-      const geoNearStage = {
-        $geoNear: {
-          near: {
-            type: "Point",
-            coordinates: [parseFloat(longitude), parseFloat(latitude)],
-          },
-          distanceField: "distance",
-          spherical: true,
-          maxDistance: parseInt(maxDistance) || 10000,
-          query: matchQuery,
-        },
+      // Use aggregation pipeline for geospatial queries. $geoNear must be the first stage.
+      const matchStage = {
+        isActive: true,
+        inStock: true,
+        ...(req.query.type ? { type: req.query.type } : {}),
+        ...(category && { category }),
+        ...(minPrice || maxPrice
+          ? {
+              price: {
+                ...(minPrice && { $gte: parseFloat(minPrice) }),
+                ...(maxPrice && { $lte: parseFloat(maxPrice) }),
+              },
+            }
+          : {}),
+        ...(search
+          ? {
+              $or: [
+                { name: { $regex: search, $options: "i" } },
+                { description: { $regex: search, $options: "i" } },
+                { category: { $regex: search, $options: "i" } }
+              ],
+            }
+          : {}),
       };
 
-      const pipeline = [geoNearStage, { $sort: sortOptions }, { $skip: skip }, { $limit: pageSize }];
+      const geoPipeline = [
+        {
+          $geoNear: {
+            near: {
+              type: "Point",
+              coordinates: [parseFloat(longitude), parseFloat(latitude)],
+            },
+            distanceField: "distance",
+            maxDistance: parseInt(maxDistance) || 50000,
+            spherical: true,
+            query: matchStage,
+          },
+        },
+        { $skip: skip },
+        { $limit: pageSize },
+        {
+          $lookup: {
+            from: "users",
+            localField: "seller",
+            foreignField: "_id",
+            as: "seller",
+          },
+        },
+        {
+          $unwind: {
+            path: "$seller",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+      ];
 
-      products = await Product.aggregate(pipeline);
-      await Product.populate(products, { path: "seller" });
+      products = await Product.aggregate(geoPipeline);
 
-      const countResult = await Product.aggregate([geoNearStage, { $count: "count" }]);
-      total = countResult[0]?.count || 0;
-    } else {
-      total = await Product.countDocuments(matchQuery);
-      products = await Product.find(matchQuery)
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(pageSize)
-        .populate("seller");
+      const countPipeline = [
+        {
+          $geoNear: {
+            near: {
+              type: "Point",
+              coordinates: [parseFloat(longitude), parseFloat(latitude)],
+            },
+            distanceField: "distance",
+            maxDistance: parseInt(maxDistance) || 50000,
+            spherical: true,
+            query: matchStage,
+          },
+        },
+        { $count: "count" },
+      ];
+      const countResult = await Product.aggregate(countPipeline);
+      const total = countResult[0]?.count || 0;
+
+      return res.json({
+        success: true,
+        count: products.length,
+        total,
+        page: pageNum,
+        pages: Math.ceil(total / pageSize),
+        products,
+      });
     }
+
+    // Non-geospatial query
+    let sortOptions = { createdAt: -1 };
+    if (sortBy === "price_low") sortOptions = { price: 1 };
+    if (sortBy === "price_high") sortOptions = { price: -1 };
+    if (sortBy === "rating") sortOptions = { rating: -1 };
+    if (sortBy === "newest") sortOptions = { createdAt: -1 };
+
+    const total = await Product.countDocuments(query);
+    const queryProducts = await Product.find(query)
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(pageSize)
+      .populate("seller");
+
+    products = queryProducts;
 
     res.json({
       success: true,
+      count: products.length,
       total,
       page: pageNum,
       pages: Math.ceil(total / pageSize),
@@ -175,23 +160,19 @@ router.get("/", async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: "Error fetching products: " + err.message });
   }
 });
 
 // @route   GET /api/products/seller/:sellerId
-// @desc    Get products for a specific seller
+// @desc    Get all products of a seller
 // @access  Public
 router.get("/seller/:sellerId", async (req, res) => {
   try {
     const products = await Product.find({
       seller: req.params.sellerId,
       isActive: true,
-      inStock: true,
-    }).populate("seller");
+    }).sort({ createdAt: -1 });
 
     res.json({
       success: true,
@@ -199,121 +180,197 @@ router.get("/seller/:sellerId", async (req, res) => {
       products,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Error fetching products: " + err.message });
   }
 });
 
 // @route   GET /api/products/:id
-// @desc    Get single product details
+// @desc    Get single product
 // @access  Public
 router.get("/:id", async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate("seller");
+    const product = await Product.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { totalViews: 1 } },
+      { new: true }
+    ).populate("seller");
+
     if (!product) {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    res.json({ success: true, product });
+    res.json({
+      success: true,
+      product,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Error fetching product: " + err.message });
+  }
+});
+
+// @route   POST /api/products
+// @desc    Create new product
+// @access  Private (Farmer/Fertilizer Seller)
+router.post("/", protect, authorize("farmer", "fertilizer_seller"), async (req, res) => {
+  try {
+    const { name, description, type, category, price, quantity, unit, images, address, location, composition } =
+      req.body;
+
+    // Validate required fields
+    if (!name || !description || !type || !category || !price || !quantity) {
+      return res.status(400).json({ error: "Please provide all required fields" });
+    }
+
+    // Farmer verification gate — only verified farmers can publish active products
+    const seller = await User.findById(req.user._id);
+    const isFarmer = req.user.role === "farmer";
+    const isVerifiedFarmer = !isFarmer || seller.verificationStatus === "verified";
+    // Fertilizer sellers are not subject to the farmer verification workflow
+
+    // Use provided coordinates or default to [0, 0] (product saved as inactive draft)
+    let geoCoords = [0, 0];
+    let locationProvided = false;
+    if (
+      location &&
+      Array.isArray(location.coordinates) &&
+      location.coordinates.length === 2 &&
+      location.coordinates.every((coord) => typeof coord === "number" && Number.isFinite(coord))
+    ) {
+      geoCoords = [Number(location.coordinates[0]), Number(location.coordinates[1])];
+      locationProvided = true;
+    }
+
+    const geoLocation = {
+      type: "Point",
+      coordinates: geoCoords,
+      address: (location && location.address) || address || "",
+    };
+
+    const product = new Product({
+      name,
+      description,
+      type,
+      category,
+      price,
+      quantity,
+      unit: unit || "kg",
+      images: images || [],
+      address: (location && location.address) || address || "",
+      location: geoLocation,
+      seller: req.user._id,
+      sellerName: `${req.user.firstName} ${req.user.lastName}`,
+      mainImage: images && images[0]?.url ? images[0].url : null,
+      // Only publish product if farmer is verified and location provided
+      isActive: isVerifiedFarmer && locationProvided,
+      inStock: true,
+      ...(composition && { composition }),
+    });
+
+    await product.save();
+
+    // Update user total products
+    await User.findByIdAndUpdate(req.user._id, { $inc: { totalProducts: 1 } });
+
+    let message = "Product created successfully";
+    if (!isVerifiedFarmer) {
+      message = "Product saved as draft. Complete farmer verification to publish it to buyers.";
+    } else if (!locationProvided) {
+      message = "Product saved as draft. Add your GPS location to publish it.";
+    }
+
+    res.status(201).json({
+      success: true,
+      product,
+      message,
+      isPublished: product.isActive,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error creating product: " + err.message });
   }
 });
 
 // @route   PUT /api/products/:id
-// @desc    Update a product
-// @access  Private/Farmer or Fertilizer Seller or Admin
-router.put("/:id", protect, authorize("farmer", "fertilizer_seller", "admin"), async (req, res) => {
+// @desc    Update product
+// @access  Private (Product Owner)
+router.put("/:id", protect, async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    let product = await Product.findById(req.params.id);
+
     if (!product) {
       return res.status(404).json({ error: "Product not found" });
     }
 
+    // Check if user is product owner or admin
     if (product.seller.toString() !== req.user._id.toString() && req.user.role !== "admin") {
-      return res.status(403).json({ error: "You are not authorized to update this product" });
+      return res.status(403).json({ error: "Not authorized to update this product" });
     }
 
     const allowedFields = [
       "name",
       "description",
-      "type",
-      "category",
       "price",
       "quantity",
       "unit",
+      "category",
       "images",
-      "mainImage",
       "address",
       "location",
-      "harvestDate",
-      "organicCertified",
-      "pesticidesUsed",
-      "composition",
-      "validUntil",
-      "dosagePerAcre",
       "isActive",
-      "inStock",
-      "stockStatus",
-      "aiSuggestedPrice",
-      "aiSuggestionDate",
-      "marketTrend",
-      "tags",
-      "metadata",
-      "sellerName",
     ];
 
-    allowedFields.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        product[field] = req.body[field];
+    const updates = {};
+    Object.keys(req.body).forEach((key) => {
+      if (allowedFields.includes(key)) {
+        updates[key] = req.body[key];
       }
     });
 
-    if (req.body.location && Array.isArray(req.body.location.coordinates)) {
-      product.location = {
-        type: "Point",
-        coordinates: [
-          parseFloat(req.body.location.coordinates[0]),
-          parseFloat(req.body.location.coordinates[1]),
-        ],
-      };
-    }
+    product = await Product.findByIdAndUpdate(req.params.id, updates, {
+      new: true,
+      runValidators: true,
+    });
 
-    await product.save();
-
-    res.json({ success: true, product });
+    res.json({
+      success: true,
+      product,
+      message: "Product updated successfully",
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Error updating product: " + err.message });
   }
 });
 
 // @route   DELETE /api/products/:id
-// @desc    Delete a product
-// @access  Private/Farmer or Fertilizer Seller or Admin
-router.delete("/:id", protect, authorize("farmer", "fertilizer_seller", "admin"), async (req, res) => {
+// @desc    Delete product
+// @access  Private (Product Owner/Admin)
+router.delete("/:id", protect, async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
+
     if (!product) {
       return res.status(404).json({ error: "Product not found" });
     }
 
     if (product.seller.toString() !== req.user._id.toString() && req.user.role !== "admin") {
-      return res.status(403).json({ error: "You are not authorized to delete this product" });
+      return res.status(403).json({ error: "Not authorized to delete this product" });
     }
 
-    await product.deleteOne();
+    await Product.findByIdAndDelete(req.params.id);
 
-    res.json({ success: true, message: "Product deleted successfully" });
+    // Update user total products
+    await User.findByIdAndUpdate(req.user._id, { $inc: { totalProducts: -1 } });
+
+    res.json({
+      success: true,
+      message: "Product deleted successfully",
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Error deleting product: " + err.message });
   }
 });
 
 // @route   POST /api/products/:id/review
-// @desc    Add review to a product
+// @desc    Add review to product
 // @access  Private
 router.post("/:id/review", protect, async (req, res) => {
   try {
@@ -328,13 +385,16 @@ router.post("/:id/review", protect, async (req, res) => {
       return res.status(404).json({ error: "Product not found" });
     }
 
+    // Prevent self-review
     if (product.seller.toString() === req.user._id.toString()) {
       return res.status(400).json({ error: "You cannot review your own product" });
     }
 
+    // Check for duplicate reviews from same user
     const existingReview = product.reviews.find(
-      (review) => review.reviewer.toString() === req.user._id.toString()
+      (r) => r.reviewer.toString() === req.user._id.toString()
     );
+
     if (existingReview) {
       return res.status(400).json({ error: "You have already reviewed this product" });
     }
@@ -342,20 +402,25 @@ router.post("/:id/review", protect, async (req, res) => {
     product.reviews.push({
       reviewer: req.user._id,
       rating,
-      comment: comment || "",
+      comment,
+      verified: true,
       createdAt: new Date(),
     });
+
+    // Recalculate average rating
+    const avgRating = product.reviews.reduce((sum, r) => sum + r.rating, 0) / product.reviews.length;
+    product.rating = avgRating;
     product.reviewCount = product.reviews.length;
-    product.rating =
-      product.reviews.reduce((total, review) => total + review.rating, 0) /
-      product.reviews.length;
 
     await product.save();
 
-    res.status(201).json({ success: true, product });
+    res.status(201).json({
+      success: true,
+      message: "Review added successfully",
+      product,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Error adding review: " + err.message });
   }
 });
 

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cartAPI, orderAPI } from "../../services/api.js";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -178,6 +178,21 @@ const Cart = () => {
 
       if (!paymentResponse || !paymentResponse.razorpayOrderId) {
         throw new Error(paymentResponse?.error || "Invalid Razorpay response");
+      }
+
+      if (paymentResponse.razorpayOrderId.startsWith("order_mock_")) {
+        // Automatically confirm payment for simulated checkout!
+        addNotification("Simulating checkout payment...", "info");
+        await paymentAPI.confirmPayment(paymentResponse.paymentId, order._id, {
+          razorpayPaymentId: `pay_mock_${Math.random().toString(36).substring(7)}`,
+          razorpayOrderId: paymentResponse.razorpayOrderId,
+          razorpaySignature: "mock_signature_bypass",
+        });
+        
+        setCheckoutSuccess("Mock payment completed successfully! Redirecting...");
+        addNotification("Payment successful (Simulated)", "success");
+        setTimeout(() => navigate("/buyer"), 1400);
+        return;
       }
 
       const loaded = await loadRazorpayScript();

@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const { Order, Cart } = require("../models/Order");
 const User = require("../models/User");
 const Product = require("../models/Product");
+const Delivery = require("../models/Delivery");
 const Notification = require("../models/Notification");
 const { protect, authorize } = require("../middleware/auth");
 const { sendOrderConfirmation } = require("../services/mailService");
@@ -35,6 +36,94 @@ const sendNotification = async (userId, title, message, type, relatedId, actionU
     }
   } catch (err) {
     console.error("Error sending notification:", err);
+  }
+};
+
+// Automatic delivery creation helper
+const createDeliveryForOrder = async (order) => {
+  try {
+    const itemsBySeller = {};
+    for (const item of order.items) {
+      const sellerId = item.seller.toString();
+      if (!itemsBySeller[sellerId]) {
+        itemsBySeller[sellerId] = [];
+      }
+      itemsBySeller[sellerId].push(item);
+    }
+
+    const buyer = await User.findById(order.buyer);
+    if (!buyer) {
+      console.error(`Buyer ${order.buyer} not found for delivery creation`);
+      return;
+    }
+
+    for (const sellerId of Object.keys(itemsBySeller)) {
+      const seller = await User.findById(sellerId);
+      if (!seller) {
+        console.error(`Seller ${sellerId} not found for delivery creation`);
+        continue;
+      }
+
+      const sellerItems = itemsBySeller[sellerId];
+      const deliveryItems = sellerItems.map((item) => ({
+        product: item.product,
+        name: item.productName,
+        quantity: item.quantity,
+        weight: item.quantity,
+      }));
+
+      const recipientName = order.deliveryAddress?.fullName || `${buyer.firstName} ${buyer.lastName}`;
+      const recipientPhone = order.deliveryAddress?.phone || buyer.phone;
+      const recipientEmail = buyer.email;
+
+      const hasFertilizer = sellerItems.some((item) => item.productType === "fertilizer");
+      const deliveryType = hasFertilizer ? "fertilizer" : "product";
+
+      const deliveryCoords =
+        order.deliveryAddress?.coordinates?.coordinates &&
+        order.deliveryAddress.coordinates.coordinates.length === 2
+          ? order.deliveryAddress.coordinates.coordinates
+          : buyer.location?.coordinates && buyer.location.coordinates.length === 2
+          ? buyer.location.coordinates
+          : [0, 0];
+
+      const senderCoords =
+        seller.location?.coordinates && seller.location.coordinates.length === 2
+          ? seller.location.coordinates
+          : [0, 0];
+
+      const delivery = new Delivery({
+        type: deliveryType,
+        order: order._id,
+        sender: seller._id,
+        senderName: seller.businessName || `${seller.firstName} ${seller.lastName}`,
+        senderPhone: seller.phone,
+        senderLocation: {
+          type: "Point",
+          coordinates: senderCoords,
+          address: seller.address
+            ? `${seller.address.street || ""}, ${seller.address.city || ""}`.trim()
+            : "Seller Address",
+        },
+        recipient: buyer._id,
+        recipientName,
+        recipientPhone,
+        recipientEmail,
+        recipientLocation: {
+          type: "Point",
+          coordinates: deliveryCoords,
+          address: order.deliveryAddress
+            ? `${order.deliveryAddress.street || ""}, ${order.deliveryAddress.city || ""}`.trim()
+            : "Recipient Address",
+        },
+        items: deliveryItems,
+        status: "assigned",
+      });
+
+      await delivery.save();
+    }
+  } catch (err) {
+    console.error("Error creating delivery automatically:", err);
   }
 };
 
@@ -294,6 +383,10 @@ router.put("/:id/status", protect, async (req, res) => {
     });
 
     await order.save();
+
+    if (status === "confirmed") {
+      await createDeliveryForOrder(order);
+    }
 
     // Emit real-time notification
     const io = req.app.get("io");

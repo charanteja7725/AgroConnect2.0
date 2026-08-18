@@ -14,6 +14,7 @@ const EditProduct = () => {
   const [marketPrice, setMarketPrice] = useState("");
   const [unit, setUnit] = useState("kg");
   const [location, setLocation] = useState("");
+  const [locationCoords, setLocationCoords] = useState(null);
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -31,6 +32,7 @@ const EditProduct = () => {
         setMarketPrice(product.price || "");
         setUnit(product.unit || "kg");
         setLocation(product.address || product.location?.name || "");
+        setLocationCoords(product.location || null);
         setDescription(product.description || "");
         setImageUrl(product.images?.[0]?.url || "");
       } catch (error) {
@@ -63,7 +65,7 @@ const EditProduct = () => {
         unit,
         images,
         address: location,
-        location: {
+        location: locationCoords || {
           type: "Point",
           coordinates: [0, 0],
         },
@@ -114,7 +116,11 @@ const EditProduct = () => {
               <option value="vegetables">Vegetables</option>
               <option value="fruits">Fruits</option>
               <option value="grains">Grains</option>
-              <option value="pulses">Pulses</option>
+              <option value="seeds">Seeds</option>
+              <option value="equipment">Equipment</option>
+              <option value="npk">NPK Fertilizer</option>
+              <option value="organic">Organic/Bio</option>
+              <option value="pesticide">Pesticides</option>
             </select>
           </div>
 

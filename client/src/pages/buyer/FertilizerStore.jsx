@@ -2,16 +2,32 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { productAPI } from "../../services/api.js";
 import { LocationService } from "../../services/LocationService.js";
+import { useCart, useNotification } from "../../context/AppHooks.js";
 import "../buyer/buyerdashboard.css";
 
 const FertilizerStore = () => {
   const navigate = useNavigate();
+  const { addToCart } = useCart();
+  const { addNotification } = useNotification();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [locationInfo, setLocationInfo] = useState(null);
   const [locationAddress, setLocationAddress] = useState("");
   const [searchText, setSearchText] = useState("");
+
+  const handleAddToCart = async (product) => {
+    try {
+      await addToCart(product, 1);
+      if (addNotification) {
+        addNotification(`${product.name} added to cart!`, "success");
+      }
+    } catch (err) {
+      if (addNotification) {
+        addNotification(err.message || "Failed to add item to cart", "error");
+      }
+    }
+  };
 
   const loadFertilizers = async (location, search) => {
     setLoading(true);
@@ -130,7 +146,7 @@ const FertilizerStore = () => {
                     <span className="product-price">₹{product.price}</span>
                     <span className="product-stock">{product.quantity || "Available"} kg</span>
                   </div>
-                  <button className="add-cart-btn" onClick={() => navigate("/buyer/cart")}>🛒 Add to Cart</button>
+                  <button className="add-cart-btn" onClick={() => handleAddToCart(product)}>🛒 Add to Cart</button>
                 </div>
               </div>
             ))}

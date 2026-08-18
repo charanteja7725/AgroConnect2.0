@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const { validationResult, body } = require("express-validator");
 const User = require("../models/User");
 const { protect } = require("../middleware/auth");
-const { sendWelcomeEmail } = require("../services/mailService");
+const { sendWelcomeEmail, sendPasswordResetEmail } = require("../services/mailService");
 
 const router = express.Router();
 
@@ -196,10 +196,12 @@ router.post(
       user.resetPasswordExpire = Date.now() + 1 * 60 * 60 * 1000; // 1 hour
       await user.save();
 
-      // TODO: In production, send email with reset link
-      // TODO: In production, send email with reset link
-      // const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
-      // await sendPasswordResetEmail(user.email, resetUrl);
+      const resetUrl = `${process.env.CLIENT_URL || "http://localhost:5173"}/reset-password/${resetToken}`;
+      try {
+        await sendPasswordResetEmail(user.email, resetUrl);
+      } catch (emailError) {
+        console.error("Password reset email failed to send:", emailError);
+      }
 
       res.status(200).json({
         success: true,

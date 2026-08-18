@@ -1,4 +1,4 @@
-﻿import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useNotification } from "./context/AppHooks.js";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
@@ -18,6 +18,7 @@ import Verification from "./pages/Verification";
 import DeliveryDashboard from "./pages/delivery/DeliveryDashboard";
 import DeliveryDetail from "./pages/delivery/DeliveryDetail";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import NotFound from "./pages/NotFound.jsx";
 
 function NotificationList() {
   const { notifications } = useNotification();
@@ -146,7 +147,7 @@ function App() {
         <Route
           path="/fertilizer-store"
           element={
-            <ProtectedRoute allowedRoles={["buyer"]}>
+            <ProtectedRoute allowedRoles={["buyer", "farmer"]}>
               <FertilizerStore />
             </ProtectedRoute>
           }
@@ -161,6 +162,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

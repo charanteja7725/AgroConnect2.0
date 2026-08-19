@@ -6,8 +6,16 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
+const cloudinaryCloudName =
+  process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_NAME || "";
+const cloudinaryConfigured = Boolean(
+  cloudinaryCloudName &&
+    process.env.CLOUDINARY_API_KEY &&
+    process.env.CLOUDINARY_API_SECRET
+);
+
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_NAME,
+  cloud_name: cloudinaryCloudName,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
@@ -83,6 +91,13 @@ const createSignedPreviewUrl = (media) => {
   const item = toPlainObject(media);
   if (!item.publicId) return item.url || "";
 
+  // Unit/integration tests intentionally run without Cloudinary secrets. Avoid
+  // noisy SDK warnings there. Production returns no private preview unless the
+  // secure Cloudinary configuration is actually present.
+  if (!cloudinaryConfigured) {
+    return process.env.NODE_ENV === "test" ? item.url || "" : "";
+  }
+
   try {
     return cloudinary.url(item.publicId, {
       secure: true,
@@ -91,7 +106,9 @@ const createSignedPreviewUrl = (media) => {
       resource_type: item.resourceType || "image",
     });
   } catch (error) {
-    console.warn("Unable to create verification preview URL:", error.message);
+    if (process.env.NODE_ENV !== "test") {
+      console.warn("Unable to create verification preview URL:", error.message);
+    }
     return "";
   }
 };

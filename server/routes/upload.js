@@ -5,12 +5,24 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 const storage = multer.memoryStorage();
-const upload = multer({
+
+const imageUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Only image uploads are allowed"));
+      return cb(new Error("Only image files are allowed"));
+    }
+    cb(null, true);
+  },
+});
+
+const videoUpload = multer({
+  storage,
+  limits: { fileSize: 60 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("video/")) {
+      return cb(new Error("Only video files are allowed"));
     }
     cb(null, true);
   },
@@ -31,27 +43,49 @@ const ensureCloudinaryConfigured = () => {
   }
 };
 
-const uploadBuffer = async (file, folder) => {
+const uploadBuffer = async (
+  file,
+  folder,
+  resourceType = "image",
+  deliveryType = "upload"
+) => {
   ensureCloudinaryConfigured();
+
   const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+
   return cloudinary.uploader.upload(dataUri, {
     folder,
-    resource_type: "image",
+    resource_type: resourceType,
+    type: deliveryType,
   });
 };
 
+const verificationResponse = (uploadResult, resourceType) => ({
+  success: true,
+  url: uploadResult.secure_url || "",
+  publicId: uploadResult.public_id,
+  resourceType,
+  deliveryType: "authenticated",
+});
+
+// Normal product image upload.
 router.post(
   "/image",
   protect,
   authorize("farmer", "fertilizer_seller"),
-  upload.single("image"),
+  imageUpload.single("image"),
   async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No image file uploaded" });
       }
 
-      const uploadResult = await uploadBuffer(req.file, "agroconnect/products");
+      const uploadResult = await uploadBuffer(
+        req.file,
+        "agroconnect/products",
+        "image",
+        "upload"
+      );
 
       return res.json({
         success: true,
@@ -65,30 +99,56 @@ router.post(
   }
 );
 
+// Aadhaar and verification evidence are stored as authenticated Cloudinary
+// assets so they are not normal public product media.
 router.post(
-  "/verification/farmer-id",
+  "/verification/aadhaar-front",
   protect,
   authorize("farmer"),
-  upload.single("image"),
+  imageUpload.single("file"),
   async (req, res) => {
     try {
       if (!req.file) {
-        return res.status(400).json({ error: "Farmer ID image is required" });
+        return res.status(400).json({ error: "Aadhaar front image is required" });
       }
 
-      const uploadResult = await uploadBuffer(
+      const result = await uploadBuffer(
         req.file,
-        `agroconnect/verification/${req.user._id}/farmer-id`
+        `agroconnect/verification/${req.user._id}/aadhaar-front`,
+        "image",
+        "authenticated"
       );
 
-      return res.json({
-        success: true,
-        url: uploadResult.secure_url,
-        publicId: uploadResult.public_id,
-      });
+      return res.json(verificationResponse(result, "image"));
     } catch (err) {
-      console.error("Farmer ID upload error:", err);
-      return res.status(500).json({ error: err.message || "Error uploading farmer ID" });
+      console.error("Aadhaar front upload error:", err);
+      return res.status(500).json({ error: err.message || "Error uploading Aadhaar front" });
+    }
+  }
+);
+
+router.post(
+  "/verification/aadhaar-back",
+  protect,
+  authorize("farmer"),
+  imageUpload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Aadhaar back image is required" });
+      }
+
+      const result = await uploadBuffer(
+        req.file,
+        `agroconnect/verification/${req.user._id}/aadhaar-back`,
+        "image",
+        "authenticated"
+      );
+
+      return res.json(verificationResponse(result, "image"));
+    } catch (err) {
+      console.error("Aadhaar back upload error:", err);
+      return res.status(500).json({ error: err.message || "Error uploading Aadhaar back" });
     }
   }
 );
@@ -97,28 +157,71 @@ router.post(
   "/verification/farm-photo",
   protect,
   authorize("farmer"),
-  upload.single("image"),
+  imageUpload.single("file"),
   async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "Farm photo is required" });
       }
 
-      const uploadResult = await uploadBuffer(
+      const result = await uploadBuffer(
         req.file,
-        `agroconnect/verification/${req.user._id}/farm-photo`
+        `agroconnect/verification/${req.user._id}/farm-photo`,
+        "image",
+        "authenticated"
       );
 
-      return res.json({
-        success: true,
-        url: uploadResult.secure_url,
-        publicId: uploadResult.public_id,
-      });
+      return res.json(verificationResponse(result, "image"));
     } catch (err) {
       console.error("Farm photo upload error:", err);
       return res.status(500).json({ error: err.message || "Error uploading farm photo" });
     }
   }
 );
+
+router.post(
+  "/verification/farming-video",
+  protect,
+  authorize("farmer"),
+  videoUpload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Farming video is required" });
+      }
+
+      const result = await uploadBuffer(
+        req.file,
+        `agroconnect/verification/${req.user._id}/farming-video`,
+        "video",
+        "authenticated"
+      );
+
+      return res.json(verificationResponse(result, "video"));
+    } catch (err) {
+      console.error("Farming video upload error:", err);
+      return res.status(500).json({ error: err.message || "Error uploading farming video" });
+    }
+  }
+);
+
+// Multer errors are converted to readable JSON responses instead of the
+// default HTML error page.
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({
+      error:
+        err.code === "LIMIT_FILE_SIZE"
+          ? "Uploaded file is too large"
+          : err.message,
+    });
+  }
+
+  if (err) {
+    return res.status(400).json({ error: err.message || "Invalid upload" });
+  }
+
+  next();
+});
 
 module.exports = router;

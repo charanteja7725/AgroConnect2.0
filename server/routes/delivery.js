@@ -1,45 +1,58 @@
 const express = require("express");
 const Delivery = require("../models/Delivery");
+const User = require("../models/User");
 const { protect, authorize } = require("../middleware/auth");
 const { sendDeliveryUpdate } = require("../services/mailService");
 
 const router = express.Router();
+const USER_CONTACT_FIELDS = "_id firstName lastName phone email businessName role avatar";
 
-// @route   GET /api/delivery
-// @desc    Get deliveries
-// @access  Private
+const populateDelivery = (query) =>
+  query
+    .populate("deliveryPartner", USER_CONTACT_FIELDS)
+    .populate("order")
+    .populate("sender", USER_CONTACT_FIELDS)
+    .populate("recipient", USER_CONTACT_FIELDS);
+
+const canAccessDelivery = (delivery, user) => {
+  if (user.role === "admin") return true;
+  const userId = user._id.toString();
+  return Boolean(
+    delivery.deliveryPartner?.toString() === userId ||
+      delivery.sender?.toString() === userId ||
+      delivery.recipient?.toString() === userId
+  );
+};
+
 router.get("/", protect, async (req, res) => {
   try {
-    let query = {};
+    let query;
 
-    if (req.user.role === "delivery_partner") {
-      query.deliveryPartner = req.user._id;
+    if (req.user.role === "admin") {
+      query = {};
+    } else if (req.user.role === "delivery_partner") {
+      query = { deliveryPartner: req.user._id };
+    } else if (["farmer", "fertilizer_seller"].includes(req.user.role)) {
+      query = { sender: req.user._id };
+    } else if (req.user.role === "buyer") {
+      query = { recipient: req.user._id };
+    } else {
+      return res.status(403).json({ error: "Not authorized to view deliveries" });
     }
 
-    const deliveries = await Delivery.find(query)
-      .populate("deliveryPartner")
-      .populate("order")
-      .populate("sender")
-      .populate("recipient")
-      .sort({ createdAt: -1 });
+    const deliveries = await populateDelivery(
+      Delivery.find(query).sort({ createdAt: -1 })
+    );
 
-    res.json({
-      success: true,
-      count: deliveries.length,
-      deliveries,
-    });
+    return res.json({ success: true, count: deliveries.length, deliveries });
   } catch (err) {
-    res.status(500).json({ error: "Error fetching deliveries: " + err.message });
+    return res.status(500).json({ error: "Error fetching deliveries: " + err.message });
   }
 });
 
-// @route   GET /api/delivery/nearby
-// @desc    Get nearby deliveries for a partner
-// @access  Private (Delivery Partner)
 router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) => {
   try {
-    const { longitude, latitude, maxDistance = 0 } = req.query;
-
+    const { longitude, latitude, maxDistance = 50000 } = req.query;
     const query = {
       $or: [
         { deliveryPartner: req.user._id },
@@ -49,57 +62,43 @@ router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) =
       status: { $in: ["assigned", "accepted", "picked_up"] },
     };
 
-    if (longitude && latitude) {
+    if (longitude !== undefined || latitude !== undefined) {
+      const lng = Number(longitude);
+      const lat = Number(latitude);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+        return res.status(400).json({ error: "Valid longitude and latitude are required" });
+      }
       query.recipientLocation = {
         $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [parseFloat(longitude), parseFloat(latitude)],
-          },
-          $maxDistance: parseInt(maxDistance),
+          $geometry: { type: "Point", coordinates: [lng, lat] },
+          $maxDistance: Math.min(200000, Math.max(1, Number(maxDistance) || 50000)),
         },
       };
     }
 
     const deliveries = await Delivery.find(query).limit(15);
-
-    res.json({
-      success: true,
-      count: deliveries.length,
-      deliveries,
-    });
+    return res.json({ success: true, count: deliveries.length, deliveries });
   } catch (err) {
-    res.status(500).json({ error: "Error fetching deliveries: " + err.message });
+    return res.status(500).json({ error: "Error fetching deliveries: " + err.message });
   }
 });
 
-// @route   GET /api/delivery/:id
-// @desc    Get single delivery
-// @access  Private
 router.get("/:id", protect, async (req, res) => {
   try {
-    const delivery = await Delivery.findById(req.params.id)
-      .populate("deliveryPartner")
-      .populate("order")
-      .populate("sender")
-      .populate("recipient");
+    const rawDelivery = await Delivery.findById(req.params.id);
+    if (!rawDelivery) return res.status(404).json({ error: "Delivery not found" });
 
-    if (!delivery) {
-      return res.status(404).json({ error: "Delivery not found" });
+    if (!canAccessDelivery(rawDelivery, req.user)) {
+      return res.status(403).json({ error: "Not authorized to view this delivery" });
     }
 
-    res.json({
-      success: true,
-      delivery,
-    });
+    const delivery = await populateDelivery(Delivery.findById(req.params.id));
+    return res.json({ success: true, delivery });
   } catch (err) {
-    res.status(500).json({ error: "Error fetching delivery: " + err.message });
+    return res.status(500).json({ error: "Error fetching delivery: " + err.message });
   }
 });
 
-// @route   POST /api/delivery/create
-// @desc    Create new delivery
-// @access  Private (Admin/Order System)
 router.post("/create", protect, authorize("admin"), async (req, res) => {
   try {
     const {
@@ -115,7 +114,7 @@ router.post("/create", protect, authorize("admin"), async (req, res) => {
       items,
     } = req.body;
 
-    const delivery = new Delivery({
+    const delivery = await Delivery.create({
       type,
       order,
       sender,
@@ -130,54 +129,38 @@ router.post("/create", protect, authorize("admin"), async (req, res) => {
       status: "assigned",
     });
 
-    await delivery.save();
-
-    res.status(201).json({
-      success: true,
-      delivery,
-      message: "Delivery created successfully",
-    });
+    return res.status(201).json({ success: true, delivery, message: "Delivery created successfully" });
   } catch (err) {
-    res.status(500).json({ error: "Error creating delivery: " + err.message });
+    return res.status(500).json({ error: "Error creating delivery: " + err.message });
   }
 });
 
-// @route   PUT /api/delivery/:id/assign
-// @desc    Assign delivery partner
-// @access  Private (Admin)
 router.put("/:id/assign", protect, authorize("admin"), async (req, res) => {
   try {
-    const { deliveryPartnerId } = req.body;
+    const partner = await User.findOne({
+      _id: req.body.deliveryPartnerId,
+      role: "delivery_partner",
+      isActive: true,
+    });
+    if (!partner) return res.status(400).json({ error: "Active delivery partner not found" });
 
     const delivery = await Delivery.findByIdAndUpdate(
       req.params.id,
-      {
-        deliveryPartner: deliveryPartnerId,
-        status: "assigned",
-      },
+      { deliveryPartner: partner._id, status: "assigned" },
       { new: true }
-    ).populate("deliveryPartner");
+    ).populate("deliveryPartner", USER_CONTACT_FIELDS);
 
-    res.json({
-      success: true,
-      delivery,
-      message: "Delivery partner assigned",
-    });
+    if (!delivery) return res.status(404).json({ error: "Delivery not found" });
+    return res.json({ success: true, delivery, message: "Delivery partner assigned" });
   } catch (err) {
-    res.status(500).json({ error: "Error assigning delivery: " + err.message });
+    return res.status(500).json({ error: "Error assigning delivery: " + err.message });
   }
 });
 
-// @route   PUT /api/delivery/:id/accept
-// @desc    Accept an available delivery order
-// @access  Private (Delivery Partner)
 router.put("/:id/accept", protect, authorize("delivery_partner"), async (req, res) => {
   try {
     const delivery = await Delivery.findById(req.params.id);
-
-    if (!delivery) {
-      return res.status(404).json({ error: "Delivery not found" });
-    }
+    if (!delivery) return res.status(404).json({ error: "Delivery not found" });
 
     if (delivery.deliveryPartner && delivery.deliveryPartner.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: "This delivery has already been claimed." });
@@ -186,98 +169,70 @@ router.put("/:id/accept", protect, authorize("delivery_partner"), async (req, re
     delivery.deliveryPartner = req.user._id;
     delivery.partnerName = `${req.user.firstName} ${req.user.lastName}`;
     delivery.partnerPhone = req.user.phone || "";
-    delivery.status = delivery.status === "assigned" ? "accepted" : delivery.status;
+    delivery.status = "accepted";
     delivery.statusHistory.push({
       status: "accepted",
       timestamp: new Date(),
       note: "Delivery accepted by partner",
     });
-
     await delivery.save();
 
-    res.json({
-      success: true,
-      delivery,
-      message: "Delivery accepted successfully",
-    });
+    return res.json({ success: true, delivery, message: "Delivery accepted successfully" });
   } catch (err) {
-    res.status(500).json({ error: "Error accepting delivery: " + err.message });
+    return res.status(500).json({ error: "Error accepting delivery: " + err.message });
   }
 });
 
-// @route   PUT /api/delivery/:id/status
-// @desc    Update delivery status
-// @access  Private (Delivery Partner)
 router.put("/:id/status", protect, authorize("delivery_partner"), async (req, res) => {
   try {
     const { status, location, note } = req.body;
-
-    const delivery = await Delivery.findById(req.params.id);
-
-    if (!delivery) {
-      return res.status(404).json({ error: "Delivery not found" });
+    const validStatuses = ["assigned", "accepted", "picked_up", "in_transit", "delivered", "failed"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid delivery status" });
     }
 
-    if (delivery.deliveryPartner.toString() !== req.user._id.toString()) {
+    const delivery = await Delivery.findById(req.params.id);
+    if (!delivery) return res.status(404).json({ error: "Delivery not found" });
+
+    if (!delivery.deliveryPartner || delivery.deliveryPartner.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: "Not authorized to update this delivery" });
     }
 
     delivery.status = status;
 
-    // Add location to route
     if (location) {
-      delivery.route.push({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        timestamp: new Date(),
-      });
-
-      delivery.partnerLocation = {
-        type: "Point",
-        coordinates: [location.longitude, location.latitude],
-      };
+      const lat = Number(location.latitude);
+      const lng = Number(location.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return res.status(400).json({ error: "Invalid delivery location" });
+      }
+      delivery.route.push({ latitude: lat, longitude: lng, timestamp: new Date() });
+      delivery.partnerLocation = { type: "Point", coordinates: [lng, lat] };
     }
 
-    // Add status to history
-    delivery.statusHistory.push({
-      status,
-      timestamp: new Date(),
-      location,
-      note,
-    });
-
-    if (status === "delivered") {
-      delivery.actualDeliveryTime = new Date();
-    }
-
+    delivery.statusHistory.push({ status, timestamp: new Date(), location, note });
+    if (status === "delivered") delivery.actualDeliveryTime = new Date();
     await delivery.save();
 
-    // Send delivery update email to recipient
     try {
-      const recipient = await require("../models/User").findById(delivery.recipient);
-      if (recipient) {
-        await sendDeliveryUpdate(delivery, recipient);
-      }
+      const recipient = await User.findById(delivery.recipient);
+      if (recipient) await sendDeliveryUpdate(delivery, recipient);
     } catch (emailError) {
-      console.error('Delivery update email failed:', emailError);
-      // Don't fail update if email fails
+      console.error("Delivery update email failed:", emailError);
     }
 
-    // Emit real-time location update
     const io = req.app.get("io");
-    io.emit("delivery_location_update", {
-      deliveryId: delivery._id,
-      location,
-      status,
-    });
+    if (io) {
+      io.emit("delivery_location_update", {
+        deliveryId: delivery._id,
+        location,
+        status,
+      });
+    }
 
-    res.json({
-      success: true,
-      delivery,
-      message: `Delivery status updated to ${status}`,
-    });
+    return res.json({ success: true, delivery, message: `Delivery status updated to ${status}` });
   } catch (err) {
-    res.status(500).json({ error: "Error updating delivery: " + err.message });
+    return res.status(500).json({ error: "Error updating delivery: " + err.message });
   }
 });
 

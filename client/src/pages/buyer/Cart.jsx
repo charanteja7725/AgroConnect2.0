@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cartAPI, orderAPI } from "../../services/api.js";
+import { cartAPI, orderAPI, paymentAPI } from "../../services/api.js";
 import { useLanguage } from "../../context/LanguageContext.jsx";
-import { useNotification } from "../../context/AppContext.jsx";
+import { useAuth, useNotification } from "../../context/AppHooks.js";
+import LocationService from "../../services/LocationService.js";
 import "./cart.css";
 
 const Cart = () => {
@@ -10,11 +11,14 @@ const Cart = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addNotification } = useNotification();
+
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   const [checkoutSuccess, setCheckoutSuccess] = useState("");
+  const [deliveryLocationNote, setDeliveryLocationNote] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("upi");
   const [deliveryAddress, setDeliveryAddress] = useState({
     fullName: "",
     phone: "",
@@ -26,10 +30,23 @@ const Cart = () => {
     landmark: "",
     coordinates: null,
   });
-  const [deliveryLocationNote, setDeliveryLocationNote] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("upi");
 
-  const fetchCart = async () => {
+  useEffect(() => {
+    if (!user) return;
+    setDeliveryAddress((previous) => ({
+      ...previous,
+      fullName:
+        previous.fullName || [user.firstName, user.lastName].filter(Boolean).join(" "),
+      phone: previous.phone || user.phone || "",
+      street: previous.street || user.address?.street || "",
+      city: previous.city || user.address?.city || "",
+      state: previous.state || user.address?.state || "",
+      zipCode: previous.zipCode || user.address?.zipCode || "",
+      country: previous.country || user.address?.country || "India",
+    }));
+  }, [user]);
+
+  const fetchCart = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -40,16 +57,21 @@ const Cart = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCart();
-  }, []);
+  }, [fetchCart]);
 
   const loadRazorpayScript = () =>
     new Promise((resolve) => {
-      if (window.Razorpay) {
-        return resolve(true);
+      if (window.Razorpay) return resolve(true);
+
+      const existing = document.getElementById("razorpay-script");
+      if (existing) {
+        existing.addEventListener("load", () => resolve(true), { once: true });
+        existing.addEventListener("error", () => resolve(false), { once: true });
+        return;
       }
 
       const script = document.createElement("script");
@@ -61,48 +83,59 @@ const Cart = () => {
     });
 
   const handleQuantityChange = async (item, delta) => {
-    const nextQuantity = item.quantity + delta;
+    const nextQuantity = Number(item.quantity) + delta;
     if (nextQuantity < 1) return;
+
     try {
       await cartAPI.updateCartItem(item._id, nextQuantity);
-      addNotification("Cart updated", "success");
-      fetchCart();
+      addNotification?.("Cart updated", "success");
+      await fetchCart();
     } catch (err) {
-      addNotification(err.message || "Unable to update quantity", "error");
+      addNotification?.(err.message || "Unable to update quantity", "error");
     }
   };
 
   const handleRemove = async (item) => {
     try {
       await cartAPI.removeFromCart(item._id);
-      addNotification("Item removed from cart", "success");
-      fetchCart();
+      addNotification?.("Item removed from cart", "success");
+      await fetchCart();
     } catch (err) {
-      addNotification(err.message || "Unable to remove item", "error");
+      addNotification?.(err.message || "Unable to remove item", "error");
     }
   };
 
   const handleUseCurrentLocation = async () => {
     setCheckoutError("");
     setDeliveryLocationNote("");
+
     try {
       const coords = await LocationService.getCurrentLocation();
-      const addressData = await LocationService.reverseGeocode(coords.latitude, coords.longitude);
-      const newAddress = {
-        ...deliveryAddress,
-        street: addressData?.road || addressData?.suburb || deliveryAddress.street,
-        city: addressData?.city || addressData?.town || addressData?.village || deliveryAddress.city,
-        state: addressData?.state || deliveryAddress.state,
-        zipCode: addressData?.postcode || deliveryAddress.zipCode,
-        country: addressData?.country || deliveryAddress.country,
+      const addressData = await LocationService.reverseGeocode(
+        coords.latitude,
+        coords.longitude
+      );
+
+      setDeliveryAddress((previous) => ({
+        ...previous,
+        street: addressData?.road || addressData?.suburb || previous.street,
+        city:
+          addressData?.city ||
+          addressData?.town ||
+          addressData?.village ||
+          previous.city,
+        state: addressData?.state || previous.state,
+        zipCode: addressData?.postcode || previous.zipCode,
+        country: addressData?.country || previous.country || "India",
         coordinates: {
           type: "Point",
-          coordinates: [coords.longitude, coords.latitude],
+          coordinates: [Number(coords.longitude), Number(coords.latitude)],
         },
-      };
+      }));
 
-      setDeliveryAddress(newAddress);
-      setDeliveryLocationNote(`Current location captured at ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`);
+      setDeliveryLocationNote(
+        `Current location captured at ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`
+      );
     } catch (err) {
       setCheckoutError(err.message || "Unable to fetch current location");
     }
@@ -125,38 +158,44 @@ const Cart = () => {
           });
 
           setCheckoutSuccess("Payment completed successfully. Redirecting...");
-          addNotification("Payment successful", "success");
-          setTimeout(() => navigate("/buyer"), 1400);
+          addNotification?.("Payment successful", "success");
+          setTimeout(() => navigate("/buyer"), 1200);
         } catch (err) {
           setCheckoutError(err.message || "Payment confirmation failed");
-          addNotification(err.message || "Payment confirmation failed", "error");
+          addNotification?.(err.message || "Payment confirmation failed", "error");
         }
       },
       prefill: {
-        name: deliveryAddress.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`,
+        name:
+          deliveryAddress.fullName ||
+          `${user?.firstName || ""} ${user?.lastName || ""}`.trim(),
         email: user?.email || "",
         contact: deliveryAddress.phone || user?.phone || "",
       },
-      theme: {
-        color: "#009933",
-      },
+      theme: { color: "#009933" },
       modal: {
-        ondismiss: () => {
-          setCheckoutError("Payment was cancelled. You can try again.");
-        },
+        ondismiss: () => setCheckoutError("Payment was cancelled. You can try again."),
       },
     };
 
-    const razorpayInstance = new window.Razorpay(options);
-    razorpayInstance.open();
+    new window.Razorpay(options).open();
   };
 
   const handleCheckout = async () => {
     setCheckoutError("");
     setCheckoutSuccess("");
 
-    if (!deliveryAddress.street || !deliveryAddress.city || !deliveryAddress.state || !deliveryAddress.zipCode) {
-      setCheckoutError("Please fill in your delivery address before checkout.");
+    const requiredFields = [
+      deliveryAddress.fullName,
+      deliveryAddress.phone,
+      deliveryAddress.street,
+      deliveryAddress.city,
+      deliveryAddress.state,
+      deliveryAddress.zipCode,
+    ];
+
+    if (requiredFields.some((value) => !String(value || "").trim())) {
+      setCheckoutError("Please fill in the complete delivery address before checkout.");
       return;
     }
 
@@ -165,33 +204,45 @@ const Cart = () => {
       return;
     }
 
+    setLoading(true);
+
     try {
-      setLoading(true);
-      const orderResponse = await orderAPI.createOrder({ deliveryAddress, paymentMethod });
+      const orderResponse = await orderAPI.createOrder({
+        deliveryAddress,
+        paymentMethod,
+      });
       const order = orderResponse.order;
 
-      if (!order || !order._id || order.totalAmount == null) {
+      if (!order?._id || order.totalAmount == null) {
         throw new Error("Invalid order response. Please try again.");
       }
 
-      const paymentResponse = await paymentAPI.createPaymentIntent(order._id, Number(order.totalAmount));
-
-      if (!paymentResponse || !paymentResponse.razorpayOrderId) {
-        throw new Error(paymentResponse?.error || "Invalid Razorpay response");
+      if (paymentMethod === "cash_on_delivery") {
+        setCheckoutSuccess("Order placed successfully with cash on delivery.");
+        addNotification?.("Order placed successfully", "success");
+        setTimeout(() => navigate("/buyer"), 1000);
+        return;
       }
 
+      const paymentResponse = await paymentAPI.createPaymentIntent(
+        order._id,
+        Number(order.totalAmount)
+      );
+
+      if (!paymentResponse?.razorpayOrderId) {
+        throw new Error("Payment provider did not return a valid payment order");
+      }
+
+      // Development/test mock orders are generated only by a non-production backend.
       if (paymentResponse.razorpayOrderId.startsWith("order_mock_")) {
-        // Automatically confirm payment for simulated checkout!
-        addNotification("Simulating checkout payment...", "info");
         await paymentAPI.confirmPayment(paymentResponse.paymentId, order._id, {
-          razorpayPaymentId: `pay_mock_${Math.random().toString(36).substring(7)}`,
+          razorpayPaymentId: `pay_mock_${Math.random().toString(36).slice(2)}`,
           razorpayOrderId: paymentResponse.razorpayOrderId,
-          razorpaySignature: "mock_signature_bypass",
+          razorpaySignature: "development_mock",
         });
-        
-        setCheckoutSuccess("Mock payment completed successfully! Redirecting...");
-        addNotification("Payment successful (Simulated)", "success");
-        setTimeout(() => navigate("/buyer"), 1400);
+        setCheckoutSuccess("Development payment completed. Redirecting...");
+        addNotification?.("Development payment completed", "success");
+        setTimeout(() => navigate("/buyer"), 1000);
         return;
       }
 
@@ -200,30 +251,33 @@ const Cart = () => {
         throw new Error("Razorpay Checkout could not be loaded. Please refresh the page.");
       }
 
-      openRazorpayCheckout(paymentResponse, order);
+      await openRazorpayCheckout(paymentResponse, order);
     } catch (err) {
-      const message = err.message || err || "Unable to complete checkout";
+      const message = err?.message || "Unable to complete checkout";
       setCheckoutError(message);
-      addNotification(message, "error");
+      addNotification?.(message, "error");
     } finally {
       setLoading(false);
     }
   };
 
-  const total = cart?.totalPrice || 0;
+  const total = Number(cart?.totalPrice) || 0;
   const tax = Math.round(total * 0.05);
   const totalAmount = total + tax;
 
   return (
     <div className="cart-page">
       <div className="cart-topbar">
-        <div className="cart-brand" onClick={() => navigate("/buyer")}>🌱 {t("appName")}</div>
+        <div className="cart-brand" onClick={() => navigate("/buyer")}>
+          🌱 {t("appName")}
+        </div>
       </div>
 
       <div className="cart-container">
         <div className="cart-items-section">
           <h2>{t("cartTitle")}</h2>
-          {loading ? (
+
+          {loading && !cart ? (
             <p>{t("loadingCart")}</p>
           ) : error ? (
             <p className="error-state">{error}</p>
@@ -231,11 +285,19 @@ const Cart = () => {
             cart.items.map((item) => (
               <div className="cart-item" key={item._id}>
                 <div className="cart-item-left">
-                  <div className="item-image">🥬</div>
+                  <div className="item-image">
+                    {item.product?.images?.[0]?.url ? (
+                      <img src={item.product.images[0].url} alt={item.product?.name || "Product"} />
+                    ) : (
+                      "🥬"
+                    )}
+                  </div>
                   <div>
-                    <h4>{item.product?.name || item.productName}</h4>
+                    <h4>{item.product?.name || item.productName || "Product"}</h4>
                     <p className="farmer">{item.seller?.firstName || item.sellerName || "Seller"}</p>
-                    <p className="price">₹{item.price}/kg</p>
+                    <p className="price">
+                      ₹{item.price}/{item.product?.unit || "unit"}
+                    </p>
                   </div>
                 </div>
 
@@ -245,7 +307,6 @@ const Cart = () => {
                     <span>{item.quantity}</span>
                     <button onClick={() => handleQuantityChange(item, 1)}>+</button>
                   </div>
-
                   <div className="item-total">₹{item.totalPrice}</div>
                   <button className="remove-btn" onClick={() => handleRemove(item)}>
                     Remove
@@ -263,81 +324,63 @@ const Cart = () => {
 
         <div className="cart-summary">
           <h3>{t("orderSummary")}</h3>
-          <div className="summary-row">
-            <span>{t("items")}</span>
-            <span>{cart?.items?.length || 0}</span>
-          </div>
-          <div className="summary-row">
-            <span>{t("subtotal")}</span>
-            <span>₹{total}</span>
-          </div>
-          <div className="summary-row">
-            <span>{t("tax")}</span>
-            <span>₹{tax}</span>
-          </div>
-          <div className="summary-row total-row">
-            <span>{t("total")}</span>
-            <span>₹{totalAmount}</span>
-          </div>
+          <div className="summary-row"><span>{t("items")}</span><span>{cart?.items?.length || 0}</span></div>
+          <div className="summary-row"><span>{t("subtotal")}</span><span>₹{total}</span></div>
+          <div className="summary-row"><span>{t("tax")}</span><span>₹{tax}</span></div>
+          <div className="summary-row total-row"><span>{t("total")}</span><span>₹{totalAmount}</span></div>
 
           <div className="checkout-section">
             <h4>{t("deliveryAddress")}</h4>
-            <input
-              type="text"
-              placeholder={t("fullName")}
-              value={deliveryAddress.fullName}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, fullName: e.target.value })}
-            />
-            <input
-              type="text"
-              placeholder={t("phoneLabel")}
-              value={deliveryAddress.phone}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, phone: e.target.value })}
-            />
-            <input
-              type="text"
-              placeholder={t("streetLabel")}
-              value={deliveryAddress.street}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, street: e.target.value })}
-            />
-            <input
-              type="text"
-              placeholder={t("cityLabel")}
-              value={deliveryAddress.city}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, city: e.target.value })}
-            />
-            <input
-              type="text"
-              placeholder={t("stateLabel")}
-              value={deliveryAddress.state}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, state: e.target.value })}
-            />
-            <input
-              type="text"
-              placeholder={t("zipCodeLabel")}
-              value={deliveryAddress.zipCode}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, zipCode: e.target.value })}
-            />
-            <input
-              type="text"
-              placeholder={t("landmarkLabel")}
-              value={deliveryAddress.landmark}
-              onChange={(e) => setDeliveryAddress({ ...deliveryAddress, landmark: e.target.value })}
-            />
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-              <option value="upi">UPI</option>
-              <option value="credit_card">Credit Card</option>
-              <option value="debit_card">Debit Card</option>
-              <option value="wallet">Wallet</option>
+
+            {[
+              ["fullName", t("fullName")],
+              ["phone", t("phoneLabel")],
+              ["street", t("streetLabel")],
+              ["city", t("cityLabel")],
+              ["state", t("stateLabel")],
+              ["zipCode", t("zipCodeLabel")],
+              ["landmark", t("landmarkLabel")],
+            ].map(([field, placeholder]) => (
+              <input
+                key={field}
+                type="text"
+                placeholder={placeholder}
+                value={deliveryAddress[field] || ""}
+                onChange={(event) =>
+                  setDeliveryAddress((previous) => ({
+                    ...previous,
+                    [field]: event.target.value,
+                  }))
+                }
+              />
+            ))}
+
+            <button type="button" className="back-btn" onClick={handleUseCurrentLocation}>
+              📍 Use Current Location
+            </button>
+            {deliveryLocationNote && <p className="success-state">{deliveryLocationNote}</p>}
+
+            <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>
+              <option value="upi">UPI / Razorpay</option>
+              <option value="credit_card">Credit Card / Razorpay</option>
+              <option value="debit_card">Debit Card / Razorpay</option>
+              <option value="wallet">Wallet / Razorpay</option>
+              <option value="cash_on_delivery">Cash on Delivery</option>
             </select>
 
             {checkoutError && <p className="error-state">{checkoutError}</p>}
             {checkoutSuccess && <p className="success-state">{checkoutSuccess}</p>}
 
-            <button className="checkout-btn" onClick={handleCheckout} disabled={!cart?.items?.length || loading}>
+            <button
+              className="checkout-btn"
+              onClick={handleCheckout}
+              disabled={!cart?.items?.length || loading}
+            >
               {loading ? t("processing") : t("checkoutBtn")}
             </button>
-            <button className="back-btn" onClick={() => navigate("/buyer")}>{t("continueShoppingBtn")}</button>
+            <button className="back-btn" onClick={() => navigate("/buyer")}>
+              {t("continueShoppingBtn")}
+            </button>
           </div>
         </div>
       </div>

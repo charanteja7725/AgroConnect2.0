@@ -1,0 +1,240 @@
+.employee-verification-page {
+  min-height: 100vh;
+  background: #f4f7f2;
+  color: #1f2937;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.employee-verification-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 5%;
+  background: #1f6b43;
+  color: white;
+}
+
+.employee-verification-header h1,
+.employee-verification-header p {
+  margin: 0;
+}
+
+.employee-verification-header p {
+  margin-top: 6px;
+  opacity: 0.9;
+}
+
+.employee-verification-header button {
+  border: 1px solid rgba(255,255,255,.5);
+  background: transparent;
+  color: white;
+  padding: 9px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.employee-verification-main {
+  width: min(1200px, 94%);
+  margin: 28px auto;
+}
+
+.employee-intro,
+.employee-farmer-card,
+.employee-empty {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.06);
+}
+
+.employee-intro {
+  padding: 22px;
+}
+
+.employee-intro h2,
+.employee-intro p {
+  margin: 0;
+}
+
+.employee-intro p {
+  margin-top: 8px;
+  color: #64748b;
+  line-height: 1.55;
+}
+
+.employee-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 18px 0;
+}
+
+.employee-filter-row button {
+  border: 1px solid #d7dfd4;
+  background: white;
+  padding: 9px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.employee-filter-row button.active {
+  background: #1f6b43;
+  color: white;
+  border-color: #1f6b43;
+}
+
+.employee-alert,
+.employee-empty {
+  padding: 16px;
+  margin: 14px 0;
+}
+
+.employee-alert.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.employee-alert.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.employee-farmer-list {
+  display: grid;
+  gap: 20px;
+}
+
+.employee-farmer-card {
+  padding: 22px;
+}
+
+.employee-farmer-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 15px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 15px;
+}
+
+.employee-farmer-title h3,
+.employee-farmer-title p {
+  margin: 0;
+}
+
+.employee-farmer-title p {
+  margin-top: 5px;
+  color: #64748b;
+}
+
+.employee-farmer-title > span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef6ef;
+  color: #1f6b43;
+  text-transform: capitalize;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.employee-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.employee-evidence-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 180px;
+}
+
+.employee-evidence-card img,
+.employee-evidence-card video {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-top: 10px;
+  background: #111827;
+}
+
+.employee-missing {
+  margin-top: 12px;
+  padding: 30px 10px;
+  background: #f8fafc;
+  text-align: center;
+  color: #64748b;
+  border-radius: 8px;
+}
+
+.employee-location-card {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+
+.employee-location-card a {
+  color: #1f6b43;
+  font-weight: 700;
+}
+
+.employee-farmer-note {
+  margin-top: 15px;
+  padding: 12px;
+  border-left: 4px solid #1f6b43;
+  background: #f0fdf4;
+}
+
+.employee-farmer-card textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.employee-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.employee-review-actions button {
+  border: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.employee-review-actions button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+.employee-review-actions .approve { background: #15803d; }
+.employee-review-actions .info { background: #2563eb; }
+.employee-review-actions .reject { background: #dc2626; }
+
+@media (max-width: 650px) {
+  .employee-verification-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .employee-farmer-title {
+    flex-direction: column;
+  }
+}

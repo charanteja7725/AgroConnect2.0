@@ -21,7 +21,6 @@ const mediaDocumentSchema = new mongoose.Schema(
 
 const userSchema = new mongoose.Schema(
   {
-    // Basic Information
     firstName: {
       type: String,
       required: [true, "Please provide a first name"],
@@ -51,10 +50,16 @@ const userSchema = new mongoose.Schema(
       unique: true,
     },
 
-    // Role and Profile
     role: {
       type: String,
-      enum: ["farmer", "buyer", "fertilizer_seller", "delivery_partner", "admin"],
+      enum: [
+        "farmer",
+        "buyer",
+        "fertilizer_seller",
+        "delivery_partner",
+        "verification_employee",
+        "admin",
+      ],
       required: true,
     },
     avatar: {
@@ -66,7 +71,6 @@ const userSchema = new mongoose.Schema(
       default: "",
     },
 
-    // Location
     address: {
       street: String,
       city: String,
@@ -86,7 +90,6 @@ const userSchema = new mongoose.Schema(
       },
     },
 
-    // Business Information
     businessName: String,
     businessRegistration: String,
     farmSize: String,
@@ -94,7 +97,6 @@ const userSchema = new mongoose.Schema(
     experienceYears: Number,
     certifications: [String],
 
-    // Bank Details
     bankAccount: {
       accountHolderName: String,
       accountNumber: String,
@@ -102,7 +104,6 @@ const userSchema = new mongoose.Schema(
       bankName: String,
     },
 
-    // Ratings and Reviews
     rating: {
       type: Number,
       default: 5,
@@ -122,7 +123,6 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
-    // Statistics
     totalEarnings: {
       type: Number,
       default: 0,
@@ -140,14 +140,11 @@ const userSchema = new mongoose.Schema(
       default: 100,
     },
 
-    // Status
     isVerified: {
       type: Boolean,
       default: false,
     },
 
-    // Manual farmer verification workflow only. There is intentionally no
-    // external farmer-registry/API verification here.
     farmerVerification: {
       status: {
         type: String,
@@ -194,6 +191,20 @@ const userSchema = new mongoose.Schema(
       reviewNotes: String,
     },
 
+    // Verification employees are created by admins and can only review
+    // farmers whose submitted farm location falls inside this assigned area.
+    verificationArea: {
+      state: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      districts: {
+        type: [String],
+        default: [],
+      },
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -215,7 +226,6 @@ const userSchema = new mongoose.Schema(
       default: "not_submitted",
     },
 
-    // Evidence submitted by the farmer for local/manual employee review.
     verificationDocuments: {
       aadhaarFront: mediaDocumentSchema,
       aadhaarBack: mediaDocumentSchema,
@@ -242,7 +252,6 @@ const userSchema = new mongoose.Schema(
       moreInfoRequest: String,
     },
 
-    // Preferences
     language: {
       type: String,
       enum: ["en", "hi", "es", "fr"],
@@ -260,6 +269,12 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ location: "2dsphere" });
+userSchema.index({
+  role: 1,
+  verificationStatus: 1,
+  "verificationDocuments.farmLocation.state": 1,
+  "verificationDocuments.farmLocation.district": 1,
+});
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
@@ -282,7 +297,31 @@ userSchema.methods.getProfile = function () {
   delete userObj.password;
   delete userObj.resetPasswordToken;
   delete userObj.resetPasswordExpire;
+  delete userObj.verificationToken;
   return userObj;
+};
+
+// Public profile intentionally excludes contact details, exact home address,
+// bank data, identity evidence and internal verification/admin information.
+userSchema.methods.getPublicProfile = function () {
+  return {
+    _id: this._id,
+    firstName: this.firstName,
+    lastName: this.lastName,
+    role: this.role,
+    avatar: this.avatar,
+    bio: this.bio,
+    businessName: this.businessName,
+    farmSize: this.farmSize,
+    farmType: this.farmType,
+    experienceYears: this.experienceYears,
+    certifications: this.certifications || [],
+    rating: this.rating,
+    totalReviews: this.totalReviews,
+    isVerified: this.isVerified,
+    city: this.address?.city || "",
+    state: this.address?.state || "",
+  };
 };
 
 module.exports = mongoose.model("User", userSchema);

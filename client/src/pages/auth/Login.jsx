@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AppHooks.js";
 import { authAPI } from "../../services/api.js";
-import { FiMail, FiLock, FiShield, FiUser, FiEye, FiEyeOff } from "react-icons/fi";
-import { FaLeaf, FaUsers, FaArrowRight } from "react-icons/fa";
+import { FiMail, FiLock, FiShield, FiEye, FiEyeOff } from "react-icons/fi";
+import { FaLeaf, FaUsers } from "react-icons/fa";
 import { MdOutlineAgriculture } from "react-icons/md";
 import "./login.css";
 
@@ -20,30 +20,23 @@ function Login() {
       setError("Please enter both email and password.");
       return;
     }
+
     setError("");
     try {
       setLoading(true);
       const data = await authAPI.login(email, password);
       login(data.user, data.token);
-      switch (data.user.role) {
-        case "farmer":
-          navigate("/farmer");
-          break;
-        case "buyer":
-          navigate("/buyer");
-          break;
-        case "fertilizer_seller":
-          navigate("/fertilizer");
-          break;
-        case "delivery_partner":
-          navigate("/delivery");
-          break;
-        case "admin":
-          navigate("/admin");
-          break;
-        default:
-          navigate("/");
-      }
+
+      const roleRoutes = {
+        farmer: "/farmer",
+        buyer: "/buyer",
+        fertilizer_seller: "/fertilizer",
+        delivery_partner: "/delivery",
+        verification_employee: "/verification-employee",
+        admin: "/admin",
+      };
+
+      navigate(roleRoutes[data.user.role] || "/");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {
@@ -53,7 +46,6 @@ function Login() {
 
   return (
     <div className="login-container">
-      {/* LEFT SIDE - Hero & Image Banner */}
       <div className="login-left-banner">
         <div className="login-overlay">
           <div className="logo-container">
@@ -95,9 +87,7 @@ function Login() {
         </div>
       </div>
 
-      {/* RIGHT SIDE - Beautiful Form */}
       <div className="login-right-form">
-        {/* Falling leaves decorative elements */}
         <div className="leaf-decor leaf-1"></div>
         <div className="leaf-decor leaf-2"></div>
         <div className="wavy-bottom"></div>
@@ -108,7 +98,6 @@ function Login() {
           {error && <div className="form-error-alert">{error}</div>}
 
           <div className="input-group-container">
-            {/* Email Field */}
             <div className="custom-input-wrapper">
               <FiMail className="input-icon" />
               <input
@@ -121,7 +110,6 @@ function Login() {
               />
             </div>
 
-            {/* Password Field */}
             <div className="custom-input-wrapper" style={{ position: "relative" }}>
               <FiLock className="input-icon" />
               <input
@@ -135,7 +123,8 @@ function Login() {
               />
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((value) => !value)}
                 style={{
                   position: "absolute",
                   right: "12px",

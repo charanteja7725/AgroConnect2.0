@@ -19,22 +19,8 @@ const VERIFICATION_MEDIA_KEYS = [
 ];
 
 const toPlainObject = (value) => value?.toObject?.() || value || {};
-
-const normalizeMedia = (existing, incoming, defaultResourceType = "image") => {
-  if (!incoming || (!incoming.publicId && !incoming.url)) {
-    return existing;
-  }
-
-  return {
-    url: incoming.url || "",
-    publicId: incoming.publicId || "",
-    resourceType: incoming.resourceType || defaultResourceType,
-    deliveryType: incoming.deliveryType || "authenticated",
-    uploadedAt: new Date(),
-  };
-};
-
 const hasMedia = (media) => Boolean(media?.publicId || media?.url);
+const normalizeArea = (value) => String(value || "").trim().toLowerCase();
 
 const isValidFarmLocation = (location) => {
   const latitude = Number(location?.latitude);
@@ -50,14 +36,42 @@ const isValidFarmLocation = (location) => {
   );
 };
 
+const isCompleteFarmAddress = (location) =>
+  Boolean(
+    String(location?.address || "").trim() &&
+      String(location?.district || "").trim() &&
+      String(location?.state || "").trim()
+  );
+
+const employeeCanReviewFarmer = (employee, farmer) => {
+  if (employee.role === "admin") return true;
+  if (employee.role !== "verification_employee") return false;
+
+  const assignedState = normalizeArea(employee.verificationArea?.state);
+  const assignedDistricts = (employee.verificationArea?.districts || [])
+    .map(normalizeArea)
+    .filter(Boolean);
+
+  const farmerState = normalizeArea(
+    farmer.verificationDocuments?.farmLocation?.state
+  );
+  const farmerDistrict = normalizeArea(
+    farmer.verificationDocuments?.farmLocation?.district
+  );
+
+  if (!assignedState || !farmerState || assignedState !== farmerState) {
+    return false;
+  }
+
+  // Empty districts means the employee covers the entire assigned state.
+  return assignedDistricts.length === 0 || assignedDistricts.includes(farmerDistrict);
+};
+
 const createSignedPreviewUrl = (media) => {
   if (!media) return "";
 
   const item = toPlainObject(media);
-
-  if (!item.publicId) {
-    return item.url || "";
-  }
+  if (!item.publicId) return item.url || "";
 
   try {
     return cloudinary.url(item.publicId, {
@@ -89,13 +103,8 @@ const profileWithVerificationPreviews = (user) => {
   return profile;
 };
 
-// ─────────────────────────────────────────────────────────────────
-// FARMER MANUAL VERIFICATION ROUTES
-// ─────────────────────────────────────────────────────────────────
-
-// @route   POST /api/users/verify/submit
-// @desc    Farmer submits Aadhaar/farm evidence for local employee review
-// @access  Private (Farmer only)
+// Farmer submits location/notes after the required evidence has already been
+// uploaded and persisted by the protected Cloudinary upload endpoints.
 router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -112,80 +121,56 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
       return res.status(403).json({ error: "Your account has been suspended." });
     }
 
-    const {
-      aadhaarFront,
-      aadhaarBack,
-      farmPhoto,
-      farmingVideo,
-      farmLocation,
-      additionalNotes,
-    } = req.body;
-
+    const { farmLocation, additionalNotes } = req.body;
     const existingDocuments = toPlainObject(user.verificationDocuments);
 
-    const nextDocuments = {
-      ...existingDocuments,
-      aadhaarFront: normalizeMedia(
-        existingDocuments.aadhaarFront,
-        aadhaarFront,
-        "image"
-      ),
-      aadhaarBack: normalizeMedia(
-        existingDocuments.aadhaarBack,
-        aadhaarBack,
-        "image"
-      ),
-      farmPhoto: normalizeMedia(
-        existingDocuments.farmPhoto,
-        farmPhoto,
-        "image"
-      ),
-      farmingVideo: normalizeMedia(
-        existingDocuments.farmingVideo,
-        farmingVideo,
-        "video"
-      ),
-      farmLocation: farmLocation || existingDocuments.farmLocation,
-      submittedAt: new Date(),
-      additionalNotes: additionalNotes || "",
-    };
-
-    if (!hasMedia(nextDocuments.aadhaarFront)) {
+    // Never trust media metadata sent by the browser. Verification evidence
+    // must exist in MongoDB because the server persisted it after Cloudinary
+    // accepted the authenticated upload.
+    if (!hasMedia(existingDocuments.aadhaarFront)) {
       return res.status(400).json({ error: "Aadhaar front photo is required." });
     }
-
-    if (!hasMedia(nextDocuments.aadhaarBack)) {
+    if (!hasMedia(existingDocuments.aadhaarBack)) {
       return res.status(400).json({ error: "Aadhaar back photo is required." });
     }
-
-    if (!hasMedia(nextDocuments.farmPhoto)) {
+    if (!hasMedia(existingDocuments.farmPhoto)) {
       return res.status(400).json({ error: "A current farm photo is required." });
     }
-
-    if (!hasMedia(nextDocuments.farmingVideo)) {
+    if (!hasMedia(existingDocuments.farmingVideo)) {
       return res.status(400).json({ error: "A farming verification video is required." });
     }
 
-    if (!isValidFarmLocation(nextDocuments.farmLocation)) {
+    const nextLocation = farmLocation || existingDocuments.farmLocation;
+    if (!isValidFarmLocation(nextLocation)) {
       return res.status(400).json({
         error: "Valid farm GPS latitude and longitude are required.",
       });
     }
 
-    nextDocuments.farmLocation = {
-      latitude: Number(nextDocuments.farmLocation.latitude),
-      longitude: Number(nextDocuments.farmLocation.longitude),
-      address: String(nextDocuments.farmLocation.address || "").trim(),
-      village: String(nextDocuments.farmLocation.village || "").trim(),
-      district: String(nextDocuments.farmLocation.district || "").trim(),
-      state: String(nextDocuments.farmLocation.state || "").trim(),
-      pincode: String(nextDocuments.farmLocation.pincode || "").trim(),
+    if (!isCompleteFarmAddress(nextLocation)) {
+      return res.status(400).json({
+        error: "Farm address, district and state are required for manual verification.",
+      });
+    }
+
+    const normalizedLocation = {
+      latitude: Number(nextLocation.latitude),
+      longitude: Number(nextLocation.longitude),
+      address: String(nextLocation.address || "").trim(),
+      village: String(nextLocation.village || "").trim(),
+      district: String(nextLocation.district || "").trim(),
+      state: String(nextLocation.state || "").trim(),
+      pincode: String(nextLocation.pincode || "").trim(),
     };
 
-    user.verificationDocuments = nextDocuments;
+    user.verificationDocuments = {
+      ...existingDocuments,
+      farmLocation: normalizedLocation,
+      submittedAt: new Date(),
+      additionalNotes: String(additionalNotes || "").trim(),
+    };
     user.verificationStatus = "pending";
     user.isVerified = false;
-
     user.farmerVerification = {
       ...(toPlainObject(user.farmerVerification)),
       status: "pending",
@@ -193,14 +178,9 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
       reviewNotes: "",
     };
 
-    // Keep the farmer's marketplace location in sync with the verified farm
-    // coordinates. MongoDB GeoJSON uses [longitude, latitude].
     user.location = {
       type: "Point",
-      coordinates: [
-        nextDocuments.farmLocation.longitude,
-        nextDocuments.farmLocation.latitude,
-      ],
+      coordinates: [normalizedLocation.longitude, normalizedLocation.latitude],
     };
 
     await user.save();
@@ -208,7 +188,7 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
     return res.json({
       success: true,
       message:
-        "Verification submitted. A local AgroConnect verification employee will manually review your Aadhaar photos, farm photo, farming video and farm location.",
+        "Verification submitted. An AgroConnect verification employee assigned to your area will manually review your evidence.",
       verificationStatus: user.verificationStatus,
     });
   } catch (err) {
@@ -218,160 +198,149 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
   }
 });
 
-// @route   GET /api/users/verify/pending
-// @desc    Get farmers by verification status with secure media previews
-// @access  Private/Admin
-router.get("/verify/pending", protect, authorize("admin"), async (req, res) => {
-  try {
-    const { status = "pending" } = req.query;
-    const validStatuses = [
-      "not_submitted",
-      "pending",
-      "more_information_required",
-      "verified",
-      "rejected",
-      "suspended",
-    ];
-    const filterStatus = validStatuses.includes(status) ? status : "pending";
+// Admins see all matching farmers. Verification employees only see farmers in
+// their assigned state/district area.
+router.get(
+  "/verify/pending",
+  protect,
+  authorize("admin", "verification_employee"),
+  async (req, res) => {
+    try {
+      const { status = "pending" } = req.query;
+      const validStatuses = [
+        "not_submitted",
+        "pending",
+        "more_information_required",
+        "verified",
+        "rejected",
+        "suspended",
+      ];
+      const filterStatus = validStatuses.includes(status) ? status : "pending";
 
-    const farmers = await User.find({
-      role: "farmer",
-      verificationStatus: filterStatus,
-    })
-      .select("-password -resetPasswordToken -resetPasswordExpire")
-      .sort({ "verificationDocuments.submittedAt": -1 });
+      let farmers = await User.find({
+        role: "farmer",
+        verificationStatus: filterStatus,
+      })
+        .select("-password -resetPasswordToken -resetPasswordExpire -bankAccount")
+        .sort({ "verificationDocuments.submittedAt": -1 });
 
-    return res.json({
-      success: true,
-      count: farmers.length,
-      farmers: farmers.map(profileWithVerificationPreviews),
-    });
-  } catch (err) {
-    return res.status(500).json({
-      error: "Error fetching pending verifications: " + err.message,
-    });
-  }
-});
+      if (req.user.role === "verification_employee") {
+        if (!String(req.user.verificationArea?.state || "").trim()) {
+          return res.status(403).json({
+            error: "No verification area is assigned to this employee account.",
+          });
+        }
+        farmers = farmers.filter((farmer) => employeeCanReviewFarmer(req.user, farmer));
+      }
 
-// @route   PUT /api/users/verify/:id
-// @desc    Admin/local verification employee approves or rejects farmer
-// @access  Private/Admin
-router.put("/verify/:id", protect, authorize("admin"), async (req, res) => {
-  try {
-    const { action, notes, rejectionReason, moreInfoRequest } = req.body;
-    const validActions = [
-      "verified",
-      "rejected",
-      "more_information_required",
-      "suspended",
-    ];
-
-    if (!validActions.includes(action)) {
-      return res.status(400).json({
-        error:
-          "Invalid action. Use: verified, rejected, more_information_required, suspended",
+      return res.json({
+        success: true,
+        count: farmers.length,
+        farmers: farmers.map(profileWithVerificationPreviews),
+      });
+    } catch (err) {
+      return res.status(500).json({
+        error: "Error fetching pending verifications: " + err.message,
       });
     }
-
-    const farmer = await User.findById(req.params.id);
-
-    if (!farmer) {
-      return res.status(404).json({ error: "Farmer not found" });
-    }
-
-    if (farmer.role !== "farmer") {
-      return res.status(400).json({ error: "User is not a farmer" });
-    }
-
-    if (action === "verified") {
-      const documents = farmer.verificationDocuments;
-
-      if (!hasMedia(documents?.aadhaarFront)) {
-        return res.status(400).json({
-          error: "Cannot approve: Aadhaar front photo is missing.",
-        });
-      }
-
-      if (!hasMedia(documents?.aadhaarBack)) {
-        return res.status(400).json({
-          error: "Cannot approve: Aadhaar back photo is missing.",
-        });
-      }
-
-      if (!hasMedia(documents?.farmPhoto)) {
-        return res.status(400).json({
-          error: "Cannot approve: Farm photo is missing.",
-        });
-      }
-
-      if (!hasMedia(documents?.farmingVideo)) {
-        return res.status(400).json({
-          error: "Cannot approve: Farming verification video is missing.",
-        });
-      }
-
-      if (!isValidFarmLocation(documents?.farmLocation)) {
-        return res.status(400).json({
-          error: "Cannot approve: Valid farm GPS location is missing.",
-        });
-      }
-    }
-
-    farmer.verificationStatus = action;
-    farmer.adminReview = {
-      reviewedBy: req.user._id,
-      reviewedAt: new Date(),
-      notes: notes || "",
-      rejectionReason: rejectionReason || "",
-      moreInfoRequest: moreInfoRequest || "",
-    };
-
-    farmer.farmerVerification = {
-      ...(toPlainObject(farmer.farmerVerification)),
-      status: action,
-      reviewNotes: notes || rejectionReason || moreInfoRequest || "",
-      verifiedAt:
-        action === "verified"
-          ? new Date()
-          : farmer.farmerVerification?.verifiedAt,
-      verifiedBy:
-        action === "verified"
-          ? req.user._id
-          : farmer.farmerVerification?.verifiedBy,
-    };
-
-    if (action === "verified") {
-      farmer.isVerified = true;
-      farmer.isActive = true;
-    } else {
-      farmer.isVerified = false;
-      if (action === "suspended") {
-        farmer.isActive = false;
-      }
-    }
-
-    await farmer.save();
-
-    return res.json({
-      success: true,
-      message: `Farmer ${action === "verified" ? "approved" : action} successfully.`,
-      farmer: farmer.getProfile(),
-    });
-  } catch (err) {
-    return res.status(500).json({
-      error: "Error updating verification: " + err.message,
-    });
   }
-});
+);
 
-// @route   PUT /api/users/:id/suspend
-// @desc    Admin suspends/reactivates a user
-// @access  Private/Admin
+router.put(
+  "/verify/:id",
+  protect,
+  authorize("admin", "verification_employee"),
+  async (req, res) => {
+    try {
+      const { action, notes, rejectionReason, moreInfoRequest } = req.body;
+      const validActions = ["verified", "rejected", "more_information_required"];
+
+      if (req.user.role === "admin") {
+        validActions.push("suspended");
+      }
+
+      if (!validActions.includes(action)) {
+        return res.status(400).json({ error: "Invalid verification action." });
+      }
+
+      const farmer = await User.findById(req.params.id);
+      if (!farmer) return res.status(404).json({ error: "Farmer not found" });
+      if (farmer.role !== "farmer") {
+        return res.status(400).json({ error: "User is not a farmer" });
+      }
+
+      if (!employeeCanReviewFarmer(req.user, farmer)) {
+        return res.status(403).json({
+          error: "This farmer is outside your assigned verification area.",
+        });
+      }
+
+      if (action === "verified") {
+        const documents = farmer.verificationDocuments;
+        if (!hasMedia(documents?.aadhaarFront)) {
+          return res.status(400).json({ error: "Cannot approve: Aadhaar front photo is missing." });
+        }
+        if (!hasMedia(documents?.aadhaarBack)) {
+          return res.status(400).json({ error: "Cannot approve: Aadhaar back photo is missing." });
+        }
+        if (!hasMedia(documents?.farmPhoto)) {
+          return res.status(400).json({ error: "Cannot approve: Farm photo is missing." });
+        }
+        if (!hasMedia(documents?.farmingVideo)) {
+          return res.status(400).json({ error: "Cannot approve: Farming verification video is missing." });
+        }
+        if (!isValidFarmLocation(documents?.farmLocation) || !isCompleteFarmAddress(documents?.farmLocation)) {
+          return res.status(400).json({ error: "Cannot approve: Complete farm location is missing." });
+        }
+      }
+
+      farmer.verificationStatus = action;
+      farmer.adminReview = {
+        reviewedBy: req.user._id,
+        reviewedAt: new Date(),
+        notes: notes || "",
+        rejectionReason: rejectionReason || "",
+        moreInfoRequest: moreInfoRequest || "",
+      };
+      farmer.farmerVerification = {
+        ...(toPlainObject(farmer.farmerVerification)),
+        status: action,
+        reviewNotes: notes || rejectionReason || moreInfoRequest || "",
+        verifiedAt: action === "verified" ? new Date() : farmer.farmerVerification?.verifiedAt,
+        verifiedBy: action === "verified" ? req.user._id : farmer.farmerVerification?.verifiedBy,
+      };
+
+      if (action === "verified") {
+        farmer.isVerified = true;
+        farmer.isActive = true;
+      } else {
+        farmer.isVerified = false;
+        if (action === "suspended") farmer.isActive = false;
+      }
+
+      await farmer.save();
+
+      return res.json({
+        success: true,
+        message: `Farmer ${action === "verified" ? "approved" : action} successfully.`,
+        farmer: farmer.getProfile(),
+      });
+    } catch (err) {
+      return res.status(500).json({
+        error: "Error updating verification: " + err.message,
+      });
+    }
+  }
+);
+
 router.put("/:id/suspend", protect, authorize("admin"), async (req, res) => {
   try {
     const { action } = req.body;
-    const user = await User.findById(req.params.id);
+    if (!["suspend", "activate"].includes(action)) {
+      return res.status(400).json({ error: "Action must be suspend or activate" });
+    }
 
+    const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     user.isActive = action === "activate";
@@ -379,7 +348,10 @@ router.put("/:id/suspend", protect, authorize("admin"), async (req, res) => {
     if (action === "suspend" && user.role === "farmer") {
       user.verificationStatus = "suspended";
       user.isVerified = false;
-      user.farmerVerification.status = "suspended";
+      user.farmerVerification = {
+        ...(toPlainObject(user.farmerVerification)),
+        status: "suspended",
+      };
     }
 
     await user.save();
@@ -390,15 +362,10 @@ router.put("/:id/suspend", protect, authorize("admin"), async (req, res) => {
       user: user.getProfile(),
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error updating user status: " + err.message,
-    });
+    return res.status(500).json({ error: "Error updating user status: " + err.message });
   }
 });
 
-// @route   GET /api/users/role/:role
-// @desc    Get all users of a specific role
-// @access  Private/Admin
 router.get("/role/:role", protect, authorize("admin"), async (req, res) => {
   try {
     const users = await User.find({ role: req.params.role }).select(
@@ -411,81 +378,68 @@ router.get("/role/:role", protect, authorize("admin"), async (req, res) => {
       users: users.map((u) => u.getProfile()),
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error fetching users: " + err.message,
-    });
+    return res.status(500).json({ error: "Error fetching users: " + err.message });
   }
 });
 
-// @route   GET /api/users/search/nearby
-// @desc    Get nearby farmers/sellers by geolocation
-// @access  Public
 router.get("/search/nearby", async (req, res) => {
   try {
-    const {
-      longitude,
-      latitude,
-      maxDistance = 5000,
-      role = "farmer",
-    } = req.query;
+    const { longitude, latitude, maxDistance = 5000, role = "farmer" } = req.query;
 
-    if (!longitude || !latitude) {
-      return res.status(400).json({ error: "Longitude and latitude are required" });
+    const lng = Number(longitude);
+    const lat = Number(latitude);
+    const distance = Math.min(100000, Math.max(1, Number(maxDistance) || 5000));
+
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+      return res.status(400).json({ error: "Valid longitude and latitude are required" });
+    }
+
+    if (!["farmer", "fertilizer_seller"].includes(role)) {
+      return res.status(400).json({ error: "Invalid nearby-user role" });
     }
 
     const users = await User.find({
       location: {
         $near: {
-          $geometry: {
-            type: "Point",
-            coordinates: [parseFloat(longitude), parseFloat(latitude)],
-          },
-          $maxDistance: parseInt(maxDistance),
+          $geometry: { type: "Point", coordinates: [lng, lat] },
+          $maxDistance: distance,
         },
       },
       role,
       isActive: true,
+      ...(role === "farmer" ? { verificationStatus: "verified" } : {}),
     });
 
     return res.json({
       success: true,
       count: users.length,
-      users: users.map((u) => u.getProfile()),
+      users: users.map((u) => u.getPublicProfile()),
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error searching users: " + err.message,
-    });
+    return res.status(500).json({ error: "Error searching users: " + err.message });
   }
 });
 
-// @route   GET /api/users/:id
-// @desc    Get user by ID
-// @access  Private
 router.get("/:id", protect, async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select(
       "-password -resetPasswordToken -resetPasswordExpire"
     );
 
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const canViewPrivate =
+      req.user._id.toString() === user._id.toString() || req.user.role === "admin";
 
     return res.json({
       success: true,
-      user: user.getProfile(),
+      user: canViewPrivate ? user.getProfile() : user.getPublicProfile(),
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error fetching user: " + err.message,
-    });
+    return res.status(500).json({ error: "Error fetching user: " + err.message });
   }
 });
 
-// @route   PUT /api/users/:id
-// @desc    Update user profile
-// @access  Private
 router.put("/:id", protect, async (req, res) => {
   try {
     if (req.user._id.toString() !== req.params.id && req.user.role !== "admin") {
@@ -506,9 +460,7 @@ router.put("/:id", protect, async (req, res) => {
 
     const updates = {};
     Object.keys(req.body).forEach((key) => {
-      if (allowedFields.includes(key)) {
-        updates[key] = req.body[key];
-      }
+      if (allowedFields.includes(key)) updates[key] = req.body[key];
     });
 
     const user = await User.findByIdAndUpdate(req.params.id, updates, {
@@ -516,21 +468,18 @@ router.put("/:id", protect, async (req, res) => {
       runValidators: true,
     });
 
+    if (!user) return res.status(404).json({ error: "User not found" });
+
     return res.json({
       success: true,
       user: user.getProfile(),
       message: "Profile updated successfully",
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error updating profile: " + err.message,
-    });
+    return res.status(500).json({ error: "Error updating profile: " + err.message });
   }
 });
 
-// @route   POST /api/users/:id/review
-// @desc    Add review to user
-// @access  Private
 router.post("/:id/review", protect, async (req, res) => {
   try {
     const { rating, comment } = req.body;
@@ -539,48 +488,35 @@ router.post("/:id/review", protect, async (req, res) => {
       return res.status(400).json({ error: "Rating must be between 1 and 5" });
     }
 
-    const user = await User.findById(req.params.id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
+    if (req.user._id.toString() === req.params.id) {
+      return res.status(400).json({ error: "You cannot review your own account" });
     }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
 
     const existingReview = user.reviews.find(
       (r) => r.reviewer.toString() === req.user._id.toString()
     );
-
     if (existingReview) {
       return res.status(400).json({ error: "You have already reviewed this user" });
     }
 
-    user.reviews.push({
-      reviewer: req.user._id,
-      rating,
-      comment,
-      createdAt: new Date(),
-    });
-
-    const avgRating =
-      user.reviews.reduce((sum, r) => sum + r.rating, 0) / user.reviews.length;
-    user.rating = avgRating;
+    user.reviews.push({ reviewer: req.user._id, rating, comment, createdAt: new Date() });
+    user.rating = user.reviews.reduce((sum, r) => sum + r.rating, 0) / user.reviews.length;
     user.totalReviews = user.reviews.length;
-
     await user.save();
 
     return res.status(201).json({
       success: true,
       message: "Review added successfully",
-      user: user.getProfile(),
+      user: user.getPublicProfile(),
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error adding review: " + err.message,
-    });
+    return res.status(500).json({ error: "Error adding review: " + err.message });
   }
 });
 
-// @route   DELETE /api/users/:id
-// @desc    Delete user account
-// @access  Private
 router.delete("/:id", protect, async (req, res) => {
   try {
     if (req.user._id.toString() !== req.params.id && req.user.role !== "admin") {
@@ -588,15 +524,9 @@ router.delete("/:id", protect, async (req, res) => {
     }
 
     await User.findByIdAndDelete(req.params.id);
-
-    return res.json({
-      success: true,
-      message: "User deleted successfully",
-    });
+    return res.json({ success: true, message: "User deleted successfully" });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error deleting user: " + err.message,
-    });
+    return res.status(500).json({ error: "Error deleting user: " + err.message });
   }
 });
 

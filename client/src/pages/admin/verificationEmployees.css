@@ -1,0 +1,120 @@
+.verification-employees-page {
+  min-height: 100vh;
+  background: #f5f7f2;
+  padding: 28px 0;
+  font-family: Inter, system-ui, sans-serif;
+  color: #1f2937;
+}
+
+.verification-employees-shell {
+  width: min(1180px, 94%);
+  margin: 0 auto;
+}
+
+.verification-employees-titlebar,
+.verification-employee-form,
+.verification-employee-list-card {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.06);
+  padding: 22px;
+  margin-bottom: 20px;
+}
+
+.verification-employees-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.verification-employees-titlebar h1,
+.verification-employees-titlebar p,
+.verification-employee-form h2,
+.verification-employee-list-card h2 {
+  margin: 0;
+}
+
+.verification-employees-titlebar p {
+  margin-top: 6px;
+  color: #64748b;
+}
+
+.verification-employees-titlebar button,
+.verification-employee-form button {
+  border: none;
+  border-radius: 8px;
+  background: #1f6b43;
+  color: white;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.verification-employee-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 16px 0 12px;
+}
+
+.verification-employee-form input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+
+.district-input {
+  margin-bottom: 12px;
+}
+
+.verification-employees-alert {
+  padding: 13px 16px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
+.verification-employees-alert.error { background: #fee2e2; color: #991b1b; }
+.verification-employees-alert.success { background: #dcfce7; color: #166534; }
+
+.verification-employee-table-wrap {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.verification-employee-list-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.verification-employee-list-card th,
+.verification-employee-list-card td {
+  text-align: left;
+  padding: 11px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+.verification-employee-list-card th {
+  background: #f8fafc;
+}
+
+.verification-employee-list-card td button {
+  border: none;
+  border-radius: 7px;
+  color: white;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.verification-employee-list-card .deactivate { background: #dc2626; }
+.verification-employee-list-card .activate { background: #15803d; }
+
+@media (max-width: 700px) {
+  .verification-employees-titlebar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

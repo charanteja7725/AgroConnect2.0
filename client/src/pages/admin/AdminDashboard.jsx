@@ -1,9 +1,10 @@
-
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AppHooks.js";
 import { orderAPI, productAPI, userAPI } from "../../services/api.js";
 import "./admindashboard.css";
+
+const hasMedia = (media) => Boolean(media?.previewUrl || media?.url || media?.publicId);
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -16,8 +17,14 @@ const AdminDashboard = () => {
   const [verificationFilter, setVerificationFilter] = useState("pending");
   const [reviewNotes, setReviewNotes] = useState({});
   const [stats, setStats] = useState({
-    totalUsers: 0, totalOrders: 0, revenue: 0, totalProducts: 0,
-    farmers: 0, buyers: 0, fertilizerSellers: 0, deliveryPartners: 0,
+    totalUsers: 0,
+    totalOrders: 0,
+    revenue: 0,
+    totalProducts: 0,
+    farmers: 0,
+    buyers: 0,
+    fertilizerSellers: 0,
+    deliveryPartners: 0,
   });
   const [recentUsers, setRecentUsers] = useState([]);
   const [pendingFarmers, setPendingFarmers] = useState([]);
@@ -28,6 +35,7 @@ const AdminDashboard = () => {
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError("");
+
     try {
       const [ordersRes, farmersRes, buyersRes, fertilizerRes, deliveryRes, productsRes] =
         await Promise.all([
@@ -44,22 +52,34 @@ const AdminDashboard = () => {
       const allFertSellers = fertilizerRes.users || [];
       const allDelivery = deliveryRes.users || [];
 
-      const totalUsers = allFarmers.length + allBuyers.length + allFertSellers.length + allDelivery.length;
-      const revenue = (ordersRes.orders || []).reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+      const totalUsers =
+        allFarmers.length +
+        allBuyers.length +
+        allFertSellers.length +
+        allDelivery.length;
+      const revenue = (ordersRes.orders || []).reduce(
+        (sum, o) => sum + (o.totalAmount || 0),
+        0
+      );
 
       setStats({
         totalUsers,
-        totalOrders: ordersRes.count || 0,
+        totalOrders: ordersRes.count || (ordersRes.orders || []).length,
         revenue,
-        totalProducts: productsRes.total || 0,
+        totalProducts: productsRes.total || productsRes.count || 0,
         farmers: allFarmers.length,
         buyers: allBuyers.length,
         fertilizerSellers: allFertSellers.length,
         deliveryPartners: allDelivery.length,
       });
 
-      const merged = [...allFarmers, ...allBuyers, ...allFertSellers, ...allDelivery]
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      const merged = [
+        ...allFarmers,
+        ...allBuyers,
+        ...allFertSellers,
+        ...allDelivery,
+      ].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
       setRecentUsers(merged.slice(0, 6));
       setAllUsers(merged);
       setAllOrders(ordersRes.orders || []);
@@ -73,6 +93,8 @@ const AdminDashboard = () => {
 
   const loadPendingFarmers = useCallback(async (status) => {
     setLoading(true);
+    setError("");
+
     try {
       const res = await userAPI.getPendingVerifications(status);
       setPendingFarmers(res.farmers || []);
@@ -83,46 +105,70 @@ const AdminDashboard = () => {
     }
   }, []);
 
-  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
   useEffect(() => {
     if (activeSection === "verification") {
       loadPendingFarmers(verificationFilter);
     }
   }, [activeSection, verificationFilter, loadPendingFarmers]);
 
-  const handleVerification = async (farmerId, action, notes, rejectionReason) => {
-    setActionLoading(prev => ({ ...prev, [farmerId]: true }));
+  const handleVerification = async (
+    farmerId,
+    action,
+    notes = "",
+    rejectionReason = "",
+    moreInfoRequest = ""
+  ) => {
+    setActionLoading((prev) => ({ ...prev, [farmerId]: true }));
     setActionMsg("");
+
     try {
-      const res = await userAPI.reviewVerification(farmerId, action, notes, rejectionReason);
-      setActionMsg({ type: "success", text: res.message || `Action '${action}' applied.` });
-      // Refresh pending list
+      const res = await userAPI.reviewVerification(
+        farmerId,
+        action,
+        notes,
+        rejectionReason,
+        moreInfoRequest
+      );
+
+      setActionMsg({
+        type: "success",
+        text: res.message || `Action '${action}' applied.`,
+      });
       await loadPendingFarmers(verificationFilter);
     } catch (err) {
       setActionMsg({ type: "error", text: err.message || "Action failed." });
     } finally {
-      setActionLoading(prev => ({ ...prev, [farmerId]: false }));
+      setActionLoading((prev) => ({ ...prev, [farmerId]: false }));
     }
   };
 
   const handleSuspendUser = async (userId, action) => {
-    setActionLoading(prev => ({ ...prev, [userId]: true }));
+    setActionLoading((prev) => ({ ...prev, [userId]: true }));
+
     try {
       await userAPI.suspendUser(userId, action);
-      setActionMsg({ type: "success", text: `User ${action === "suspend" ? "suspended" : "activated"}.` });
+      setActionMsg({
+        type: "success",
+        text: `User ${action === "suspend" ? "suspended" : "activated"}.`,
+      });
       await loadDashboard();
     } catch (err) {
       setActionMsg({ type: "error", text: err.message || "Failed to update user." });
     } finally {
-      setActionLoading(prev => ({ ...prev, [userId]: false }));
+      setActionLoading((prev) => ({ ...prev, [userId]: false }));
     }
   };
 
   const handleDeleteProduct = async (productId) => {
     if (!window.confirm("Are you sure you want to remove this product?")) return;
+
     try {
       await productAPI.deleteProduct(productId);
-      setAllProducts(prev => prev.filter(p => p._id !== productId));
+      setAllProducts((prev) => prev.filter((p) => p._id !== productId));
       setActionMsg({ type: "success", text: "Product removed." });
     } catch (err) {
       setActionMsg({ type: "error", text: err.message || "Failed to delete product." });
@@ -132,12 +178,32 @@ const AdminDashboard = () => {
   const platformStats = [
     { label: "Total Users", value: stats.totalUsers, icon: "👥", color: "blue" },
     { label: "Total Orders", value: stats.totalOrders, icon: "📦", color: "green" },
-    { label: "Revenue", value: `₹${stats.revenue.toLocaleString()}`, icon: "💰", color: "purple" },
+    {
+      label: "Revenue",
+      value: `₹${stats.revenue.toLocaleString()}`,
+      icon: "💰",
+      color: "purple",
+    },
     { label: "Active Farmers", value: stats.farmers, icon: "🌾", color: "orange" },
     { label: "Buyers", value: stats.buyers, icon: "🛒", color: "teal" },
-    { label: "Fertilizer Sellers", value: stats.fertilizerSellers, icon: "🧪", color: "yellow" },
-    { label: "Delivery Partners", value: stats.deliveryPartners, icon: "🚚", color: "red" },
-    { label: "Total Products", value: stats.totalProducts, icon: "🌱", color: "emerald" },
+    {
+      label: "Fertilizer Sellers",
+      value: stats.fertilizerSellers,
+      icon: "🧪",
+      color: "yellow",
+    },
+    {
+      label: "Delivery Partners",
+      value: stats.deliveryPartners,
+      icon: "🚚",
+      color: "red",
+    },
+    {
+      label: "Total Products",
+      value: stats.totalProducts,
+      icon: "🌱",
+      color: "emerald",
+    },
   ];
 
   const navItems = [
@@ -148,9 +214,149 @@ const AdminDashboard = () => {
     { key: "orders", icon: "📦", label: "Orders" },
   ];
 
+  const renderEvidence = (farmer) => {
+    const docs = farmer.verificationDocuments || {};
+    const location = docs.farmLocation || {};
+    const hasCoordinates =
+      Number.isFinite(Number(location.latitude)) &&
+      Number.isFinite(Number(location.longitude));
+
+    return (
+      <div className="manual-verification-evidence">
+        <div className="evidence-title-row">
+          <div>
+            <h5>Submitted verification evidence</h5>
+            <p>Review each item manually before approving the farmer.</p>
+          </div>
+          <span className="manual-review-badge">Manual review</span>
+        </div>
+
+        <div className="evidence-grid">
+          <div className="evidence-card sensitive-evidence">
+            <div className="evidence-label">Aadhaar Front</div>
+            {docs.aadhaarFront?.previewUrl ? (
+              <a
+                href={docs.aadhaarFront.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="evidence-preview-link"
+              >
+                <img src={docs.aadhaarFront.previewUrl} alt="Aadhaar front evidence" />
+                <span>Open secure preview</span>
+              </a>
+            ) : (
+              <div className="evidence-missing">{hasMedia(docs.aadhaarFront) ? "Preview unavailable" : "Missing"}</div>
+            )}
+          </div>
+
+          <div className="evidence-card sensitive-evidence">
+            <div className="evidence-label">Aadhaar Back</div>
+            {docs.aadhaarBack?.previewUrl ? (
+              <a
+                href={docs.aadhaarBack.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="evidence-preview-link"
+              >
+                <img src={docs.aadhaarBack.previewUrl} alt="Aadhaar back evidence" />
+                <span>Open secure preview</span>
+              </a>
+            ) : (
+              <div className="evidence-missing">{hasMedia(docs.aadhaarBack) ? "Preview unavailable" : "Missing"}</div>
+            )}
+          </div>
+
+          <div className="evidence-card">
+            <div className="evidence-label">Farm Photo</div>
+            {docs.farmPhoto?.previewUrl ? (
+              <a
+                href={docs.farmPhoto.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="evidence-preview-link"
+              >
+                <img src={docs.farmPhoto.previewUrl} alt="Farm evidence" />
+                <span>Open farm photo</span>
+              </a>
+            ) : (
+              <div className="evidence-missing">{hasMedia(docs.farmPhoto) ? "Preview unavailable" : "Missing"}</div>
+            )}
+          </div>
+
+          <div className="evidence-card">
+            <div className="evidence-label">Farming Video</div>
+            {docs.farmingVideo?.previewUrl ? (
+              <div className="video-evidence-wrap">
+                <video controls preload="metadata" src={docs.farmingVideo.previewUrl}>
+                  Your browser does not support video playback.
+                </video>
+                <a
+                  href={docs.farmingVideo.previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open video in new tab
+                </a>
+              </div>
+            ) : (
+              <div className="evidence-missing">{hasMedia(docs.farmingVideo) ? "Preview unavailable" : "Missing"}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="farm-location-review">
+          <div className="location-review-header">
+            <strong>📍 Farm Location</strong>
+            {hasCoordinates && (
+              <a
+                href={`https://www.google.com/maps?q=${encodeURIComponent(
+                  `${location.latitude},${location.longitude}`
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in Google Maps ↗
+              </a>
+            )}
+          </div>
+
+          <div className="location-review-grid">
+            <div><span>Address</span><strong>{location.address || "Not provided"}</strong></div>
+            <div><span>Village / Town</span><strong>{location.village || "Not provided"}</strong></div>
+            <div><span>District</span><strong>{location.district || "Not provided"}</strong></div>
+            <div><span>State</span><strong>{location.state || "Not provided"}</strong></div>
+            <div><span>PIN Code</span><strong>{location.pincode || "Not provided"}</strong></div>
+            <div>
+              <span>GPS</span>
+              <strong>
+                {hasCoordinates
+                  ? `${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}`
+                  : "Not captured"}
+              </strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
-    if (loading) return <div className="loading-state"><div className="spinner" /><p>Loading...</p></div>;
-    if (error) return <div className="error-banner">{error} <button onClick={loadDashboard}>Retry</button></div>;
+    if (loading) {
+      return (
+        <div className="loading-state">
+          <div className="spinner" />
+          <p>Loading...</p>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="error-banner">
+          {error} <button onClick={loadDashboard}>Retry</button>
+        </div>
+      );
+    }
 
     switch (activeSection) {
       case "verification":
@@ -159,7 +365,9 @@ const AdminDashboard = () => {
             <div className="section-card-header">
               <div>
                 <h3>Farmer Verification Management</h3>
-                <p className="subtext">Review and approve farmer applications</p>
+                <p className="subtext">
+                  Manually review Aadhaar evidence, farm media and farm location before approval
+                </p>
               </div>
             </div>
 
@@ -168,7 +376,13 @@ const AdminDashboard = () => {
             )}
 
             <div className="verification-filter-bar">
-              {["pending", "more_information_required", "verified", "rejected", "not_submitted"].map(s => (
+              {[
+                "pending",
+                "more_information_required",
+                "verified",
+                "rejected",
+                "not_submitted",
+              ].map((s) => (
                 <button
                   key={s}
                   className={`filter-pill ${verificationFilter === s ? "active" : ""}`}
@@ -187,14 +401,18 @@ const AdminDashboard = () => {
               </div>
             ) : (
               <div className="verification-list">
-                {pendingFarmers.map(farmer => (
+                {pendingFarmers.map((farmer) => (
                   <div key={farmer._id} className="verification-card">
                     <div className="verification-card-header">
                       <div className="farmer-info">
                         <div className="farmer-avatar">{farmer.firstName?.[0] || "F"}</div>
                         <div>
-                          <h4>{farmer.firstName} {farmer.lastName}</h4>
-                          <p>{farmer.email} | {farmer.phone}</p>
+                          <h4>
+                            {farmer.firstName} {farmer.lastName}
+                          </h4>
+                          <p>
+                            {farmer.email} | {farmer.phone}
+                          </p>
                           <span className={`status-pill status-${farmer.verificationStatus}`}>
                             {farmer.verificationStatus?.replace(/_/g, " ")}
                           </span>
@@ -202,29 +420,36 @@ const AdminDashboard = () => {
                       </div>
                       <div className="submitted-date">
                         {farmer.verificationDocuments?.submittedAt && (
-                          <p>Submitted: {new Date(farmer.verificationDocuments.submittedAt).toLocaleDateString()}</p>
+                          <p>
+                            Submitted:{" "}
+                            {new Date(
+                              farmer.verificationDocuments.submittedAt
+                            ).toLocaleDateString()}
+                          </p>
                         )}
                       </div>
                     </div>
 
+                    {renderEvidence(farmer)}
+
                     {farmer.verificationDocuments?.additionalNotes && (
                       <div className="farmer-notes">
-                        <strong>Farmer's Note:</strong> {farmer.verificationDocuments.additionalNotes}
-                      </div>
-                    )}
-
-                    {farmer.verificationDocuments?.gpsCoordinates?.latitude && (
-                      <div className="farmer-notes">
-                        <strong>GPS:</strong> {farmer.verificationDocuments.gpsCoordinates.latitude.toFixed(4)}, {farmer.verificationDocuments.gpsCoordinates.longitude.toFixed(4)}
+                        <strong>Farmer's Note:</strong>{" "}
+                        {farmer.verificationDocuments.additionalNotes}
                       </div>
                     )}
 
                     <div className="review-note-input">
                       <input
                         type="text"
-                        placeholder="Admin notes (optional)"
+                        placeholder="Reviewer notes / reason / information request"
                         value={reviewNotes[farmer._id] || ""}
-                        onChange={e => setReviewNotes(prev => ({ ...prev, [farmer._id]: e.target.value }))}
+                        onChange={(e) =>
+                          setReviewNotes((prev) => ({
+                            ...prev,
+                            [farmer._id]: e.target.value,
+                          }))
+                        }
                       />
                     </div>
 
@@ -232,31 +457,56 @@ const AdminDashboard = () => {
                       <button
                         className="btn-approve"
                         disabled={actionLoading[farmer._id]}
-                        onClick={() => handleVerification(farmer._id, "verified", reviewNotes[farmer._id], "")}
+                        onClick={() =>
+                          handleVerification(
+                            farmer._id,
+                            "verified",
+                            reviewNotes[farmer._id] || "Manual evidence checked and approved."
+                          )
+                        }
                       >
-                        ✅ Approve
+                        ✅ Approve Manually
                       </button>
+
                       <button
                         className="btn-reject"
                         disabled={actionLoading[farmer._id]}
                         onClick={() => {
-                          const reason = reviewNotes[farmer._id] || "Application does not meet requirements.";
+                          const reason =
+                            reviewNotes[farmer._id] ||
+                            "Application does not meet manual verification requirements.";
                           handleVerification(farmer._id, "rejected", "", reason);
                         }}
                       >
                         ❌ Reject
                       </button>
+
                       <button
                         className="btn-info"
                         disabled={actionLoading[farmer._id]}
-                        onClick={() => handleVerification(farmer._id, "more_information_required", "", "", reviewNotes[farmer._id] || "Please provide additional documents.")}
+                        onClick={() =>
+                          handleVerification(
+                            farmer._id,
+                            "more_information_required",
+                            "",
+                            "",
+                            reviewNotes[farmer._id] ||
+                              "Please provide clearer or additional verification evidence."
+                          )
+                        }
                       >
                         🔵 Request Info
                       </button>
+
                       <button
                         className="btn-suspend"
                         disabled={actionLoading[farmer._id]}
-                        onClick={() => handleSuspendUser(farmer._id, farmer.isActive ? "suspend" : "activate")}
+                        onClick={() =>
+                          handleSuspendUser(
+                            farmer._id,
+                            farmer.isActive ? "suspend" : "activate"
+                          )
+                        }
                       >
                         {farmer.isActive ? "🚫 Suspend" : "▶️ Activate"}
                       </button>
@@ -275,7 +525,9 @@ const AdminDashboard = () => {
               <h3>User Management</h3>
               <p className="subtext">All registered platform users</p>
             </div>
-            {actionMsg && <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>}
+            {actionMsg && (
+              <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>
+            )}
             <div className="table-responsive-container">
               <table className="custom-dashboard-table">
                 <thead>
@@ -289,14 +541,22 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {allUsers.map(u => (
+                  {allUsers.map((u) => (
                     <tr key={u._id}>
-                      <td>{u.firstName} {u.lastName}</td>
-                      <td><span className="role-badge">{u.role}</span></td>
+                      <td>
+                        {u.firstName} {u.lastName}
+                      </td>
+                      <td>
+                        <span className="role-badge">{u.role}</span>
+                      </td>
                       <td>{u.email}</td>
                       <td>{u.phone}</td>
                       <td>
-                        <span className={`status-pill ${u.isActive ? "status-confirmed" : "status-cancelled"}`}>
+                        <span
+                          className={`status-pill ${
+                            u.isActive ? "status-confirmed" : "status-cancelled"
+                          }`}
+                        >
                           {u.isActive ? "Active" : "Inactive"}
                         </span>
                       </td>
@@ -305,7 +565,9 @@ const AdminDashboard = () => {
                           className={u.isActive ? "btn-reject" : "btn-approve"}
                           style={{ padding: "4px 10px", fontSize: "0.75rem" }}
                           disabled={actionLoading[u._id]}
-                          onClick={() => handleSuspendUser(u._id, u.isActive ? "suspend" : "activate")}
+                          onClick={() =>
+                            handleSuspendUser(u._id, u.isActive ? "suspend" : "activate")
+                          }
                         >
                           {u.isActive ? "Suspend" : "Activate"}
                         </button>
@@ -325,25 +587,46 @@ const AdminDashboard = () => {
               <h3>Product Listings</h3>
               <p className="subtext">All products on the platform</p>
             </div>
-            {actionMsg && <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>}
+            {actionMsg && (
+              <div className={`action-feedback ${actionMsg.type}`}>{actionMsg.text}</div>
+            )}
             {allProducts.length === 0 ? (
-              <div className="empty-state-box"><div className="empty-icon">🌱</div><h4>No products</h4></div>
+              <div className="empty-state-box">
+                <div className="empty-icon">🌱</div>
+                <h4>No products</h4>
+              </div>
             ) : (
               <div className="table-responsive-container">
                 <table className="custom-dashboard-table">
                   <thead>
-                    <tr><th>Product</th><th>Type</th><th>Price</th><th>Stock</th><th>Seller</th><th>Status</th><th>Actions</th></tr>
+                    <tr>
+                      <th>Product</th>
+                      <th>Type</th>
+                      <th>Price</th>
+                      <th>Stock</th>
+                      <th>Seller</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {allProducts.map(p => (
+                    {allProducts.map((p) => (
                       <tr key={p._id}>
                         <td>{p.name}</td>
-                        <td><span className="category-pill">{p.category}</span></td>
+                        <td>
+                          <span className="category-pill">{p.category}</span>
+                        </td>
                         <td>₹{p.price}</td>
-                        <td>{p.quantity} {p.unit}</td>
+                        <td>
+                          {p.quantity} {p.unit}
+                        </td>
                         <td>{p.sellerName || p.seller?.firstName}</td>
                         <td>
-                          <span className={`status-pill ${p.isActive ? "status-confirmed" : "status-cancelled"}`}>
+                          <span
+                            className={`status-pill ${
+                              p.isActive ? "status-confirmed" : "status-cancelled"
+                            }`}
+                          >
                             {p.isActive ? "Active" : "Inactive"}
                           </span>
                         </td>
@@ -373,22 +656,40 @@ const AdminDashboard = () => {
               <p className="subtext">Platform order history</p>
             </div>
             {allOrders.length === 0 ? (
-              <div className="empty-state-box"><div className="empty-icon">📦</div><h4>No orders yet</h4></div>
+              <div className="empty-state-box">
+                <div className="empty-icon">📦</div>
+                <h4>No orders yet</h4>
+              </div>
             ) : (
               <div className="table-responsive-container">
                 <table className="custom-dashboard-table">
                   <thead>
-                    <tr><th>Order #</th><th>Buyer</th><th>Items</th><th>Amount</th><th>Payment</th><th>Status</th></tr>
+                    <tr>
+                      <th>Order #</th>
+                      <th>Buyer</th>
+                      <th>Items</th>
+                      <th>Amount</th>
+                      <th>Payment</th>
+                      <th>Status</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {allOrders.map(o => (
+                    {allOrders.map((o) => (
                       <tr key={o._id}>
-                        <td style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>{o.orderNumber || o._id?.substring(0, 10)}</td>
-                        <td>{o.buyer?.firstName} {o.buyer?.lastName}</td>
+                        <td style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>
+                          {o.orderNumber || o._id?.substring(0, 10)}
+                        </td>
+                        <td>
+                          {o.buyer?.firstName} {o.buyer?.lastName}
+                        </td>
                         <td>{o.items?.length} item(s)</td>
                         <td>₹{o.totalAmount}</td>
-                        <td><span className="category-pill">{o.payment?.method}</span></td>
-                        <td><span className={`status-pill status-${o.status}`}>{o.status}</span></td>
+                        <td>
+                          <span className="category-pill">{o.payment?.method}</span>
+                        </td>
+                        <td>
+                          <span className={`status-pill status-${o.status}`}>{o.status}</span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -398,7 +699,7 @@ const AdminDashboard = () => {
           </div>
         );
 
-      default: // dashboard
+      default:
         return (
           <>
             <div className="kpi-grid">
@@ -416,21 +717,39 @@ const AdminDashboard = () => {
             <div className="dashboard-section-card" style={{ marginTop: "1.5rem" }}>
               <div className="section-card-header">
                 <h3>Recent Users</h3>
-                <button className="btn-text-link" onClick={() => setActiveSection("users")}>View All →</button>
+                <button
+                  className="btn-text-link"
+                  onClick={() => setActiveSection("users")}
+                >
+                  View All →
+                </button>
               </div>
               <div className="table-responsive-container">
                 <table className="custom-dashboard-table">
                   <thead>
-                    <tr><th>Name</th><th>Role</th><th>Email</th><th>Status</th></tr>
+                    <tr>
+                      <th>Name</th>
+                      <th>Role</th>
+                      <th>Email</th>
+                      <th>Status</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {recentUsers.map(u => (
+                    {recentUsers.map((u) => (
                       <tr key={u._id}>
-                        <td>{u.firstName} {u.lastName}</td>
-                        <td><span className="role-badge">{u.role}</span></td>
+                        <td>
+                          {u.firstName} {u.lastName}
+                        </td>
+                        <td>
+                          <span className="role-badge">{u.role}</span>
+                        </td>
                         <td>{u.email}</td>
                         <td>
-                          <span className={`status-pill ${u.isActive ? "status-confirmed" : "status-cancelled"}`}>
+                          <span
+                            className={`status-pill ${
+                              u.isActive ? "status-confirmed" : "status-cancelled"
+                            }`}
+                          >
                             {u.isActive ? "Active" : "Inactive"}
                           </span>
                         </td>
@@ -444,9 +763,18 @@ const AdminDashboard = () => {
             <div className="dashboard-section-card" style={{ marginTop: "1.5rem" }}>
               <h3>Platform Health</h3>
               <div className="health-metrics">
-                <div className="health-item"><span className="health-label">Server Status</span><span className="health-value green">● Online</span></div>
-                <div className="health-item"><span className="health-label">Database</span><span className="health-value green">● Connected</span></div>
-                <div className="health-item"><span className="health-label">API</span><span className="health-value green">● Operational</span></div>
+                <div className="health-item">
+                  <span className="health-label">Server Status</span>
+                  <span className="health-value green">● Online</span>
+                </div>
+                <div className="health-item">
+                  <span className="health-label">Database</span>
+                  <span className="health-value green">● Connected</span>
+                </div>
+                <div className="health-item">
+                  <span className="health-label">API</span>
+                  <span className="health-value green">● Operational</span>
+                </div>
               </div>
             </div>
           </>
@@ -461,7 +789,15 @@ const AdminDashboard = () => {
           <div className="admin-brand">🌱 AgroConnect</div>
           <div className="admin-title">Admin Control Center</div>
           <div className="admin-topbar-right">
-            <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>Logout</button>
+            <button
+              className="logout-btn"
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+            >
+              Logout
+            </button>
             <div className="profile-circle">A</div>
           </div>
         </div>
@@ -470,7 +806,7 @@ const AdminDashboard = () => {
       <div className="admin-layout">
         <div className="admin-sidebar">
           <h3 className="sidebar-title">⚙️ Admin Panel</h3>
-          {navItems.map(item => (
+          {navItems.map((item) => (
             <div
               key={item.key}
               className={`sidebar-item ${activeSection === item.key ? "active" : ""}`}

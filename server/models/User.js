@@ -1,6 +1,24 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
+const mediaDocumentSchema = new mongoose.Schema(
+  {
+    url: String,
+    publicId: String,
+    resourceType: {
+      type: String,
+      enum: ["image", "video"],
+      default: "image",
+    },
+    deliveryType: {
+      type: String,
+      default: "authenticated",
+    },
+    uploadedAt: Date,
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     // Basic Information
@@ -25,7 +43,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Please provide a password"],
       minlength: 6,
-      select: false, // Don't return password by default
+      select: false,
     },
     phone: {
       type: String,
@@ -63,16 +81,16 @@ const userSchema = new mongoose.Schema(
         default: "Point",
       },
       coordinates: {
-        type: [Number], // [longitude, latitude]
+        type: [Number],
         default: [0, 0],
       },
     },
 
-    // Business Information (for farmers and sellers)
+    // Business Information
     businessName: String,
     businessRegistration: String,
-    farmSize: String, // For farmers
-    farmType: String, // For farmers
+    farmSize: String,
+    farmType: String,
     experienceYears: Number,
     certifications: [String],
 
@@ -127,19 +145,21 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // Manual farmer verification workflow only. There is intentionally no
+    // external farmer-registry/API verification here.
     farmerVerification: {
       status: {
         type: String,
-        enum: ["not_submitted", "pending", "more_information_required", "verified", "rejected", "suspended"],
+        enum: [
+          "not_submitted",
+          "pending",
+          "more_information_required",
+          "verified",
+          "rejected",
+          "suspended",
+        ],
         default: "not_submitted",
-      },
-      identityDocumentUrl: String,
-      farmingProofUrl: String,
-      farmPhotoUrl: String,
-      farmerId: String,
-      farmLocation: {
-        latitude: Number,
-        longitude: Number,
       },
       submittedAt: Date,
       verifiedAt: Date,
@@ -149,6 +169,7 @@ const userSchema = new mongoose.Schema(
       },
       reviewNotes: String,
     },
+
     sellerVerification: {
       status: {
         type: String,
@@ -172,6 +193,7 @@ const userSchema = new mongoose.Schema(
       },
       reviewNotes: String,
     },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -180,7 +202,6 @@ const userSchema = new mongoose.Schema(
     resetPasswordToken: String,
     resetPasswordExpire: Date,
 
-    // Farmer Verification System
     verificationStatus: {
       type: String,
       enum: [
@@ -193,17 +214,26 @@ const userSchema = new mongoose.Schema(
       ],
       default: "not_submitted",
     },
+
+    // Evidence submitted by the farmer for local/manual employee review.
     verificationDocuments: {
-      governmentId: { url: String, publicId: String, uploadedAt: Date },
-      farmerId: { url: String, publicId: String, uploadedAt: Date },
-      farmPhoto: { url: String, publicId: String, uploadedAt: Date },
-      gpsCoordinates: {
+      aadhaarFront: mediaDocumentSchema,
+      aadhaarBack: mediaDocumentSchema,
+      farmPhoto: mediaDocumentSchema,
+      farmingVideo: mediaDocumentSchema,
+      farmLocation: {
         latitude: Number,
         longitude: Number,
+        address: String,
+        village: String,
+        district: String,
+        state: String,
+        pincode: String,
       },
       submittedAt: Date,
       additionalNotes: String,
     },
+
     adminReview: {
       reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       reviewedAt: Date,
@@ -231,7 +261,6 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ location: "2dsphere" });
 
-// Hash password before saving
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
@@ -244,12 +273,10 @@ userSchema.pre("save", async function (next) {
   }
 });
 
-// Compare password method
 userSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Method to get user profile (without sensitive data)
 userSchema.methods.getProfile = function () {
   const userObj = this.toObject();
   delete userObj.password;

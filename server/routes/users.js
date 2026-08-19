@@ -1,173 +1,100 @@
 const express = require("express");
+const cloudinary = require("cloudinary").v2;
 const User = require("../models/User");
 const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-const FARMER_VERIFICATION_API_URL =
-  process.env.FARMER_VERIFICATION_API_URL ||
-  "https://kycapizone.in/api/v3/agristack/newcard.php";
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-const normalizeProviderFarmer = (payload = {}) => {
-  const details =
-    payload?.result?.farmer_details ||
-    payload?.data?.farmer_details ||
-    payload?.result?.farmer ||
-    payload?.data?.farmer ||
-    payload?.farmer_details ||
-    payload?.data ||
-    payload?.result ||
-    payload;
+const VERIFICATION_MEDIA_KEYS = [
+  "aadhaarFront",
+  "aadhaarBack",
+  "farmPhoto",
+  "farmingVideo",
+];
+
+const toPlainObject = (value) => value?.toObject?.() || value || {};
+
+const normalizeMedia = (existing, incoming, defaultResourceType = "image") => {
+  if (!incoming || (!incoming.publicId && !incoming.url)) {
+    return existing;
+  }
 
   return {
-    farmerName:
-      details?.farmerName ||
-      details?.farmer_name ||
-      details?.name ||
-      "",
-    farmerNumber:
-      details?.farmerNumber ||
-      details?.farmer_number ||
-      details?.farmerId ||
-      details?.farmer_id ||
-      "",
-    centralId:
-      details?.centralId ||
-      details?.central_id ||
-      details?.centralID ||
-      "",
-    approvalStatus:
-      details?.approvalStatus ||
-      details?.approval_status ||
-      details?.approval ||
-      "",
-    registrationStatus:
-      details?.registrationStatus ||
-      details?.registration_status ||
-      details?.status ||
-      "",
+    url: incoming.url || "",
+    publicId: incoming.publicId || "",
+    resourceType: incoming.resourceType || defaultResourceType,
+    deliveryType: incoming.deliveryType || "authenticated",
+    uploadedAt: new Date(),
   };
 };
 
-const providerResultIsVerified = (farmer) => {
-  const approval = String(farmer.approvalStatus || "");
-  const registration = String(farmer.registrationStatus || "");
+const hasMedia = (media) => Boolean(media?.publicId || media?.url);
+
+const isValidFarmLocation = (location) => {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
 
   return (
-    /approved|verified/i.test(approval) &&
-    /registered|active|verified/i.test(registration)
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// FARMER VERIFICATION ROUTES
-// ─────────────────────────────────────────────────────────────────
+const createSignedPreviewUrl = (media) => {
+  if (!media) return "";
 
-// @route   POST /api/users/verify/check-registry
-// @desc    Check a Farmer ID/Enrollment Number with the configured registry provider
-// @access  Private (Farmer only)
-router.post(
-  "/verify/check-registry",
-  protect,
-  authorize("farmer"),
-  async (req, res) => {
-    try {
-      const { idType = "centralid", farmerId } = req.body;
-      const allowedTypes = ["centralid", "enrollmentnumber"];
+  const item = toPlainObject(media);
 
-      if (!allowedTypes.includes(idType)) {
-        return res.status(400).json({
-          error: "Invalid ID type. Use centralid or enrollmentnumber.",
-        });
-      }
-
-      if (!farmerId || !String(farmerId).trim()) {
-        return res.status(400).json({ error: "Farmer ID is required" });
-      }
-
-      if (!process.env.APIZONE_API_KEY) {
-        return res.status(500).json({
-          error: "Farmer verification API is not configured on the server",
-        });
-      }
-
-      const url = new URL(FARMER_VERIFICATION_API_URL);
-      url.searchParams.set("api_key", process.env.APIZONE_API_KEY);
-      url.searchParams.set("id_type", idType);
-      url.searchParams.set("id", String(farmerId).trim());
-
-      const providerResponse = await fetch(url, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-
-      let providerPayload;
-      try {
-        providerPayload = await providerResponse.json();
-      } catch (parseError) {
-        return res.status(502).json({
-          error: "Farmer verification provider returned an invalid response",
-        });
-      }
-
-      if (!providerResponse.ok) {
-        return res.status(502).json({
-          error:
-            providerPayload?.message ||
-            providerPayload?.error ||
-            "Farmer verification provider request failed",
-        });
-      }
-
-      const farmer = normalizeProviderFarmer(providerPayload);
-      const apiVerified = providerResultIsVerified(farmer);
-      const user = await User.findById(req.user._id);
-
-      if (!user) {
-        return res.status(404).json({ error: "Farmer account not found" });
-      }
-
-      user.farmerVerification = {
-        ...(user.farmerVerification?.toObject?.() || user.farmerVerification || {}),
-        idType,
-        farmerId: String(farmerId).trim(),
-        farmerName: farmer.farmerName,
-        farmerNumber: farmer.farmerNumber,
-        centralId: farmer.centralId,
-        approvalStatus: farmer.approvalStatus,
-        registrationStatus: farmer.registrationStatus,
-        apiVerified,
-        provider: "API_ZONE_AGRISTACK",
-        source: FARMER_VERIFICATION_API_URL,
-        apiCheckedAt: new Date(),
-      };
-
-      if (!apiVerified && user.verificationStatus !== "verified") {
-        user.verificationStatus = "more_information_required";
-      }
-
-      await user.save();
-
-      return res.status(200).json({
-        success: true,
-        verified: apiVerified,
-        farmer,
-        verificationStatus: user.verificationStatus,
-        message: apiVerified
-          ? "Farmer registration verified. Upload the farmer ID document and a current farm photo to continue."
-          : "The supplied ID could not be confirmed as an approved active farmer registration.",
-      });
-    } catch (err) {
-      console.error("Farmer registry verification error:", err);
-      return res.status(500).json({
-        error: "Error verifying farmer registration: " + err.message,
-      });
-    }
+  if (!item.publicId) {
+    return item.url || "";
   }
-);
+
+  try {
+    return cloudinary.url(item.publicId, {
+      secure: true,
+      sign_url: true,
+      type: item.deliveryType || "authenticated",
+      resource_type: item.resourceType || "image",
+    });
+  } catch (error) {
+    console.warn("Unable to create verification preview URL:", error.message);
+    return "";
+  }
+};
+
+const profileWithVerificationPreviews = (user) => {
+  const profile = user.getProfile();
+  const documents = profile.verificationDocuments || {};
+
+  VERIFICATION_MEDIA_KEYS.forEach((key) => {
+    if (documents[key]) {
+      documents[key] = {
+        ...documents[key],
+        previewUrl: createSignedPreviewUrl(documents[key]),
+      };
+    }
+  });
+
+  profile.verificationDocuments = documents;
+  return profile;
+};
+
+// ─────────────────────────────────────────────────────────────────
+// FARMER MANUAL VERIFICATION ROUTES
+// ─────────────────────────────────────────────────────────────────
 
 // @route   POST /api/users/verify/submit
-// @desc    Farmer submits verification request after registry and document checks
+// @desc    Farmer submits Aadhaar/farm evidence for local employee review
 // @access  Private (Farmer only)
 router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => {
   try {
@@ -180,82 +107,108 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
     if (user.verificationStatus === "verified") {
       return res.status(400).json({ error: "Your account is already verified." });
     }
+
     if (user.verificationStatus === "suspended") {
       return res.status(403).json({ error: "Your account has been suspended." });
     }
 
     const {
+      aadhaarFront,
+      aadhaarBack,
+      farmPhoto,
+      farmingVideo,
+      farmLocation,
       additionalNotes,
-      gpsLatitude,
-      gpsLongitude,
-      farmerIdUrl,
-      farmerIdPublicId,
-      farmPhotoUrl,
-      farmPhotoPublicId,
     } = req.body;
 
-    if (!user.farmerVerification?.apiVerified) {
-      return res.status(400).json({
-        error: "Verify your Farmer ID with the government registry before submitting.",
-      });
-    }
+    const existingDocuments = toPlainObject(user.verificationDocuments);
 
-    const existingFarmerIdUrl = user.verificationDocuments?.farmerId?.url;
-    const existingFarmPhotoUrl = user.verificationDocuments?.farmPhoto?.url;
-
-    if (!farmerIdUrl && !existingFarmerIdUrl) {
-      return res.status(400).json({
-        error: "A government-certified Farmer ID image is required.",
-      });
-    }
-
-    if (!farmPhotoUrl && !existingFarmPhotoUrl) {
-      return res.status(400).json({
-        error: "A current farm photo is required.",
-      });
-    }
-
-    user.verificationStatus = "pending";
-    user.verificationDocuments = {
-      ...(user.verificationDocuments?.toObject?.() || user.verificationDocuments || {}),
-      farmerId: farmerIdUrl
-        ? {
-            url: farmerIdUrl,
-            publicId: farmerIdPublicId || "",
-            uploadedAt: new Date(),
-          }
-        : user.verificationDocuments?.farmerId,
-      farmPhoto: farmPhotoUrl
-        ? {
-            url: farmPhotoUrl,
-            publicId: farmPhotoPublicId || "",
-            uploadedAt: new Date(),
-          }
-        : user.verificationDocuments?.farmPhoto,
-      gpsCoordinates:
-        gpsLatitude !== undefined && gpsLongitude !== undefined
-          ? {
-              latitude: parseFloat(gpsLatitude),
-              longitude: parseFloat(gpsLongitude),
-            }
-          : user.verificationDocuments?.gpsCoordinates,
+    const nextDocuments = {
+      ...existingDocuments,
+      aadhaarFront: normalizeMedia(
+        existingDocuments.aadhaarFront,
+        aadhaarFront,
+        "image"
+      ),
+      aadhaarBack: normalizeMedia(
+        existingDocuments.aadhaarBack,
+        aadhaarBack,
+        "image"
+      ),
+      farmPhoto: normalizeMedia(
+        existingDocuments.farmPhoto,
+        farmPhoto,
+        "image"
+      ),
+      farmingVideo: normalizeMedia(
+        existingDocuments.farmingVideo,
+        farmingVideo,
+        "video"
+      ),
+      farmLocation: farmLocation || existingDocuments.farmLocation,
       submittedAt: new Date(),
       additionalNotes: additionalNotes || "",
     };
 
-    user.farmerVerification.status = "pending";
-    user.farmerVerification.identityDocumentUrl =
-      farmerIdUrl || existingFarmerIdUrl || "";
-    user.farmerVerification.farmPhotoUrl =
-      farmPhotoUrl || existingFarmPhotoUrl || "";
-    user.farmerVerification.submittedAt = new Date();
+    if (!hasMedia(nextDocuments.aadhaarFront)) {
+      return res.status(400).json({ error: "Aadhaar front photo is required." });
+    }
+
+    if (!hasMedia(nextDocuments.aadhaarBack)) {
+      return res.status(400).json({ error: "Aadhaar back photo is required." });
+    }
+
+    if (!hasMedia(nextDocuments.farmPhoto)) {
+      return res.status(400).json({ error: "A current farm photo is required." });
+    }
+
+    if (!hasMedia(nextDocuments.farmingVideo)) {
+      return res.status(400).json({ error: "A farming verification video is required." });
+    }
+
+    if (!isValidFarmLocation(nextDocuments.farmLocation)) {
+      return res.status(400).json({
+        error: "Valid farm GPS latitude and longitude are required.",
+      });
+    }
+
+    nextDocuments.farmLocation = {
+      latitude: Number(nextDocuments.farmLocation.latitude),
+      longitude: Number(nextDocuments.farmLocation.longitude),
+      address: String(nextDocuments.farmLocation.address || "").trim(),
+      village: String(nextDocuments.farmLocation.village || "").trim(),
+      district: String(nextDocuments.farmLocation.district || "").trim(),
+      state: String(nextDocuments.farmLocation.state || "").trim(),
+      pincode: String(nextDocuments.farmLocation.pincode || "").trim(),
+    };
+
+    user.verificationDocuments = nextDocuments;
+    user.verificationStatus = "pending";
+    user.isVerified = false;
+
+    user.farmerVerification = {
+      ...(toPlainObject(user.farmerVerification)),
+      status: "pending",
+      submittedAt: new Date(),
+      reviewNotes: "",
+    };
+
+    // Keep the farmer's marketplace location in sync with the verified farm
+    // coordinates. MongoDB GeoJSON uses [longitude, latitude].
+    user.location = {
+      type: "Point",
+      coordinates: [
+        nextDocuments.farmLocation.longitude,
+        nextDocuments.farmLocation.latitude,
+      ],
+    };
 
     await user.save();
 
     return res.json({
       success: true,
       message:
-        "Verification submitted. Your registry check passed and the documents are now waiting for admin review.",
+        "Verification submitted. A local AgroConnect verification employee will manually review your Aadhaar photos, farm photo, farming video and farm location.",
       verificationStatus: user.verificationStatus,
     });
   } catch (err) {
@@ -266,7 +219,7 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
 });
 
 // @route   GET /api/users/verify/pending
-// @desc    Get farmers by verification status (admin only)
+// @desc    Get farmers by verification status with secure media previews
 // @access  Private/Admin
 router.get("/verify/pending", protect, authorize("admin"), async (req, res) => {
   try {
@@ -291,7 +244,7 @@ router.get("/verify/pending", protect, authorize("admin"), async (req, res) => {
     return res.json({
       success: true,
       count: farmers.length,
-      farmers: farmers.map((u) => u.getProfile()),
+      farmers: farmers.map(profileWithVerificationPreviews),
     });
   } catch (err) {
     return res.status(500).json({
@@ -301,7 +254,7 @@ router.get("/verify/pending", protect, authorize("admin"), async (req, res) => {
 });
 
 // @route   PUT /api/users/verify/:id
-// @desc    Admin approves/rejects farmer verification
+// @desc    Admin/local verification employee approves or rejects farmer
 // @access  Private/Admin
 router.put("/verify/:id", protect, authorize("admin"), async (req, res) => {
   try {
@@ -321,27 +274,45 @@ router.put("/verify/:id", protect, authorize("admin"), async (req, res) => {
     }
 
     const farmer = await User.findById(req.params.id);
+
     if (!farmer) {
       return res.status(404).json({ error: "Farmer not found" });
     }
+
     if (farmer.role !== "farmer") {
       return res.status(400).json({ error: "User is not a farmer" });
     }
 
     if (action === "verified") {
-      if (!farmer.farmerVerification?.apiVerified) {
+      const documents = farmer.verificationDocuments;
+
+      if (!hasMedia(documents?.aadhaarFront)) {
         return res.status(400).json({
-          error: "Cannot approve: Farmer ID has not passed registry verification.",
+          error: "Cannot approve: Aadhaar front photo is missing.",
         });
       }
-      if (!farmer.verificationDocuments?.farmerId?.url) {
+
+      if (!hasMedia(documents?.aadhaarBack)) {
         return res.status(400).json({
-          error: "Cannot approve: Farmer ID document is missing.",
+          error: "Cannot approve: Aadhaar back photo is missing.",
         });
       }
-      if (!farmer.verificationDocuments?.farmPhoto?.url) {
+
+      if (!hasMedia(documents?.farmPhoto)) {
         return res.status(400).json({
           error: "Cannot approve: Farm photo is missing.",
+        });
+      }
+
+      if (!hasMedia(documents?.farmingVideo)) {
+        return res.status(400).json({
+          error: "Cannot approve: Farming verification video is missing.",
+        });
+      }
+
+      if (!isValidFarmLocation(documents?.farmLocation)) {
+        return res.status(400).json({
+          error: "Cannot approve: Valid farm GPS location is missing.",
         });
       }
     }
@@ -355,13 +326,22 @@ router.put("/verify/:id", protect, authorize("admin"), async (req, res) => {
       moreInfoRequest: moreInfoRequest || "",
     };
 
-    farmer.farmerVerification.status = action;
-    farmer.farmerVerification.reviewNotes = notes || rejectionReason || moreInfoRequest || "";
+    farmer.farmerVerification = {
+      ...(toPlainObject(farmer.farmerVerification)),
+      status: action,
+      reviewNotes: notes || rejectionReason || moreInfoRequest || "",
+      verifiedAt:
+        action === "verified"
+          ? new Date()
+          : farmer.farmerVerification?.verifiedAt,
+      verifiedBy:
+        action === "verified"
+          ? req.user._id
+          : farmer.farmerVerification?.verifiedBy,
+    };
 
     if (action === "verified") {
       farmer.isVerified = true;
-      farmer.farmerVerification.verifiedAt = new Date();
-      farmer.farmerVerification.verifiedBy = req.user._id;
       farmer.isActive = true;
     } else {
       farmer.isVerified = false;
@@ -391,13 +371,17 @@ router.put("/:id/suspend", protect, authorize("admin"), async (req, res) => {
   try {
     const { action } = req.body;
     const user = await User.findById(req.params.id);
+
     if (!user) return res.status(404).json({ error: "User not found" });
 
     user.isActive = action === "activate";
+
     if (action === "suspend" && user.role === "farmer") {
       user.verificationStatus = "suspended";
       user.isVerified = false;
+      user.farmerVerification.status = "suspended";
     }
+
     await user.save();
 
     return res.json({
@@ -427,7 +411,9 @@ router.get("/role/:role", protect, authorize("admin"), async (req, res) => {
       users: users.map((u) => u.getProfile()),
     });
   } catch (err) {
-    return res.status(500).json({ error: "Error fetching users: " + err.message });
+    return res.status(500).json({
+      error: "Error fetching users: " + err.message,
+    });
   }
 });
 
@@ -467,7 +453,9 @@ router.get("/search/nearby", async (req, res) => {
       users: users.map((u) => u.getProfile()),
     });
   } catch (err) {
-    return res.status(500).json({ error: "Error searching users: " + err.message });
+    return res.status(500).json({
+      error: "Error searching users: " + err.message,
+    });
   }
 });
 
@@ -489,7 +477,9 @@ router.get("/:id", protect, async (req, res) => {
       user: user.getProfile(),
     });
   } catch (err) {
-    return res.status(500).json({ error: "Error fetching user: " + err.message });
+    return res.status(500).json({
+      error: "Error fetching user: " + err.message,
+    });
   }
 });
 
@@ -532,7 +522,9 @@ router.put("/:id", protect, async (req, res) => {
       message: "Profile updated successfully",
     });
   } catch (err) {
-    return res.status(500).json({ error: "Error updating profile: " + err.message });
+    return res.status(500).json({
+      error: "Error updating profile: " + err.message,
+    });
   }
 });
 
@@ -580,7 +572,9 @@ router.post("/:id/review", protect, async (req, res) => {
       user: user.getProfile(),
     });
   } catch (err) {
-    return res.status(500).json({ error: "Error adding review: " + err.message });
+    return res.status(500).json({
+      error: "Error adding review: " + err.message,
+    });
   }
 });
 
@@ -600,7 +594,9 @@ router.delete("/:id", protect, async (req, res) => {
       message: "User deleted successfully",
     });
   } catch (err) {
-    return res.status(500).json({ error: "Error deleting user: " + err.message });
+    return res.status(500).json({
+      error: "Error deleting user: " + err.message,
+    });
   }
 });
 

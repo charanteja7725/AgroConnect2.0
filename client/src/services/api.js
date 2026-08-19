@@ -3,10 +3,11 @@ const API_BASE_URL =
 
 const apiRequest = async (endpoint, options = {}) => {
   const token = localStorage.getItem("token");
-  const isFormData = options.body instanceof FormData;
+  const { timeoutMs = 20000, ...requestOptions } = options;
+  const isFormData = requestOptions.body instanceof FormData;
 
   const headers = {
-    ...(options.headers || {}),
+    ...(requestOptions.headers || {}),
   };
 
   if (!isFormData && !headers["Content-Type"] && !headers["content-type"]) {
@@ -18,11 +19,11 @@ const apiRequest = async (endpoint, options = {}) => {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
+      ...requestOptions,
       headers,
       signal: controller.signal,
     });
@@ -144,9 +145,6 @@ export const userAPI = {
         data.farmLocation
     );
 
-    // The farmer dashboard previously had a small notes-only form. Redirect
-    // that legacy action to the complete manual verification page instead of
-    // allowing an incomplete verification submission.
     if (!hasManualEvidence && typeof window !== "undefined") {
       window.location.assign("/verification");
       return Promise.resolve({
@@ -332,9 +330,12 @@ const uploadVerificationFile = (endpoint, file) => {
   const formData = new FormData();
   formData.append("file", file);
 
+  const timeoutMs = file?.type?.startsWith("video/") ? 300000 : 120000;
+
   return apiRequest(endpoint, {
     method: "POST",
     body: formData,
+    timeoutMs,
   });
 };
 
@@ -343,6 +344,7 @@ export const uploadAPI = {
     apiRequest("/upload/image", {
       method: "POST",
       body: formData,
+      timeoutMs: 120000,
     }),
 
   uploadAadhaarFront: (file) =>

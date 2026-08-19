@@ -8,7 +8,6 @@ const { protect } = require("../middleware/auth");
 const { buildGeoPoint } = require("../utils/geoUtils");
 
 const router = express.Router();
-
 const isProduction = process.env.NODE_ENV === "production";
 
 let razorpay = null;
@@ -27,93 +26,115 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require("stripe")(process.env.STRIPE_SECRET_KEY)
   : null;
 
-const createDeliveryAfterPayment = async (order, buyer) => {
-  // Do not create a duplicate delivery when confirmation is retried.
-  const existingDelivery = await Delivery.findOne({ order: order._id });
-  if (existingDelivery) return existingDelivery;
+const createDeliveriesAfterPayment = async (order, buyer) => {
+  const itemsBySeller = new Map();
 
-  const deliveryPartner = await User.findOne({
-    role: "delivery_partner",
-    isActive: true,
-  }).sort({ updatedAt: 1 });
-
-  if (!deliveryPartner) return null;
-
-  const seller = order.items[0]?.seller
-    ? await User.findById(order.items[0].seller)
-    : null;
-
-  const senderGeoPoint = buildGeoPoint(seller?.location, [0, 0]);
-  const recipientGeoPoint = buildGeoPoint(order.deliveryAddress?.coordinates, [0, 0]);
-  const deliveryType = order.items.some((item) => item.productType === "fertilizer")
-    ? "fertilizer"
-    : "product";
-
-  const delivery = await Delivery.create({
-    type: deliveryType,
-    order: order._id,
-    deliveryPartner: deliveryPartner._id,
-    partnerName: `${deliveryPartner.firstName} ${deliveryPartner.lastName}`,
-    partnerPhone: deliveryPartner.phone || "",
-    sender: order.items[0]?.seller,
-    senderName: order.items[0]?.sellerName || seller?.businessName || "Seller",
-    senderPhone: seller?.phone || "",
-    senderLocation: {
-      type: "Point",
-      coordinates: senderGeoPoint.coordinates,
-      address: [seller?.address?.street, seller?.address?.city, seller?.address?.state]
-        .filter(Boolean)
-        .join(", "),
-    },
-    recipient: buyer._id,
-    recipientName:
-      order.deliveryAddress?.fullName || `${buyer.firstName || ""} ${buyer.lastName || ""}`.trim(),
-    recipientPhone: order.deliveryAddress?.phone || buyer.phone || "",
-    recipientEmail: buyer.email || "",
-    recipientLocation: {
-      type: "Point",
-      coordinates: recipientGeoPoint.coordinates,
-      address: [
-        order.deliveryAddress?.street,
-        order.deliveryAddress?.city,
-        order.deliveryAddress?.state,
-      ]
-        .filter(Boolean)
-        .join(", "),
-    },
-    items: order.items.map((item) => ({
-      product: item.product,
-      name: item.productName,
-      quantity: item.quantity,
-    })),
-    status: "assigned",
-    deliveryCharge: Math.max(40, Math.round(order.totalAmount * 0.05)),
-    totalEarnings: Math.max(40, Math.round(order.totalAmount * 0.05)),
+  order.items.forEach((item) => {
+    if (!item.seller) return;
+    const sellerId = item.seller.toString();
+    if (!itemsBySeller.has(sellerId)) itemsBySeller.set(sellerId, []);
+    itemsBySeller.get(sellerId).push(item);
   });
 
-  order.delivery.partnerId = deliveryPartner._id;
-  order.delivery.partnerName = `${deliveryPartner.firstName} ${deliveryPartner.lastName}`;
-  order.delivery.trackingId = delivery.deliveryNumber;
-  order.delivery.estimatedDelivery = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+  const recipientGeoPoint = buildGeoPoint(
+    order.deliveryAddress?.coordinates,
+    buyer.location?.coordinates || [0, 0]
+  );
+  const deliveries = [];
 
-  return delivery;
+  for (const [sellerId, sellerItems] of itemsBySeller.entries()) {
+    // Payment confirmation can be retried. Never create duplicate seller deliveries.
+    const existing = await Delivery.findOne({ order: order._id, sender: sellerId });
+    if (existing) {
+      deliveries.push(existing);
+      continue;
+    }
+
+    const seller = await User.findById(sellerId);
+    if (!seller) continue;
+
+    const senderGeoPoint = buildGeoPoint(seller.location, [0, 0]);
+    const sellerSubtotal = sellerItems.reduce(
+      (sum, item) => sum + (Number(item.totalPrice) || Number(item.price) * Number(item.quantity) || 0),
+      0
+    );
+    const deliveryCharge = Math.max(40, Math.round(sellerSubtotal * 0.05));
+
+    const delivery = await Delivery.create({
+      type: sellerItems.some((item) => item.productType === "fertilizer")
+        ? "fertilizer"
+        : "product",
+      order: order._id,
+      // Deliberately unassigned. Delivery partners claim jobs atomically from /nearby.
+      sender: seller._id,
+      senderName:
+        seller.businessName ||
+        sellerItems[0]?.sellerName ||
+        `${seller.firstName || ""} ${seller.lastName || ""}`.trim() ||
+        "Seller",
+      senderPhone: seller.phone || "",
+      senderLocation: {
+        type: "Point",
+        coordinates: senderGeoPoint.coordinates,
+        address: [seller.address?.street, seller.address?.city, seller.address?.state]
+          .filter(Boolean)
+          .join(", "),
+      },
+      recipient: buyer._id,
+      recipientName:
+        order.deliveryAddress?.fullName ||
+        `${buyer.firstName || ""} ${buyer.lastName || ""}`.trim(),
+      recipientPhone: order.deliveryAddress?.phone || buyer.phone || "",
+      recipientEmail: buyer.email || "",
+      recipientLocation: {
+        type: "Point",
+        coordinates: recipientGeoPoint.coordinates,
+        address: [
+          order.deliveryAddress?.street,
+          order.deliveryAddress?.city,
+          order.deliveryAddress?.state,
+          order.deliveryAddress?.zipCode,
+        ]
+          .filter(Boolean)
+          .join(", "),
+      },
+      items: sellerItems.map((item) => ({
+        product: item.product,
+        name: item.productName,
+        quantity: item.quantity,
+        weight: item.quantity,
+      })),
+      status: "assigned",
+      deliveryCharge,
+      totalEarnings: deliveryCharge,
+      statusHistory: [
+        {
+          status: "assigned",
+          timestamp: new Date(),
+          note: "Delivery job created after payment confirmation",
+        },
+      ],
+    });
+
+    deliveries.push(delivery);
+  }
+
+  return deliveries;
 };
 
-// POST /api/payments/create-intent
 router.post("/create-intent", protect, async (req, res) => {
   try {
     const { orderId } = req.body;
-    if (!orderId) {
-      return res.status(400).json({ error: "Order ID is required" });
-    }
+    if (!orderId) return res.status(400).json({ error: "Order ID is required" });
 
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ error: "Order not found" });
-
     if (order.buyer.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: "Not authorized for this order" });
     }
-
+    if (order.status === "cancelled") {
+      return res.status(409).json({ error: "Cancelled orders cannot be paid" });
+    }
     if (order.payment?.status === "completed") {
       return res.status(409).json({ error: "This order has already been paid" });
     }
@@ -122,7 +143,6 @@ router.post("/create-intent", protect, async (req, res) => {
     if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
       return res.status(400).json({ error: "Order has an invalid payable amount" });
     }
-
     if (!razorpay) {
       return res.status(503).json({ error: "Razorpay is not configured on the server" });
     }
@@ -137,9 +157,6 @@ router.post("/create-intent", protect, async (req, res) => {
       });
     } catch (razorpayError) {
       console.error("Razorpay order creation failed:", razorpayError.message || razorpayError);
-
-      // Mock checkout is a development/test convenience only. Never create a
-      // mock payable order in production, even when placeholder credentials are present.
       if (isProduction) {
         return res.status(502).json({ error: "Payment provider could not create the payment order" });
       }
@@ -151,11 +168,18 @@ router.post("/create-intent", protect, async (req, res) => {
       };
     }
 
-    // Invalidate any older unfinished intents for the same order so a checkout
-    // confirmation must refer to the newest stored provider order ID.
     await Payment.updateMany(
-      { order: order._id, user: req.user._id, status: { $in: ["initiated", "processing"] } },
-      { $set: { status: "failed", failureReason: "Superseded by a new payment attempt" } }
+      {
+        order: order._id,
+        user: req.user._id,
+        status: { $in: ["initiated", "processing"] },
+      },
+      {
+        $set: {
+          status: "failed",
+          failureReason: "Superseded by a new payment attempt",
+        },
+      }
     );
 
     const payment = await Payment.create({
@@ -183,7 +207,6 @@ router.post("/create-intent", protect, async (req, res) => {
   }
 });
 
-// POST /api/payments/confirm
 router.post("/confirm", protect, async (req, res) => {
   try {
     const {
@@ -202,7 +225,6 @@ router.post("/confirm", protect, async (req, res) => {
       Payment.findById(paymentId),
       Order.findById(orderId),
     ]);
-
     if (!payment || !order) {
       return res.status(404).json({ error: "Payment or order not found" });
     }
@@ -215,18 +237,21 @@ router.post("/confirm", protect, async (req, res) => {
     ) {
       return res.status(403).json({ error: "Not authorized to confirm this payment" });
     }
+    if (order.status === "cancelled") {
+      return res.status(409).json({ error: "Cancelled orders cannot be confirmed as paid" });
+    }
 
     if (payment.status === "completed" && order.payment?.status === "completed") {
       return res.json({ success: true, message: "Payment already confirmed", order });
     }
-
     if (payment.razorpayOrderId !== razorpayOrderId) {
-      return res.status(400).json({ error: "Payment order ID does not match the stored payment attempt" });
+      return res.status(400).json({
+        error: "Payment order ID does not match the stored payment attempt",
+      });
     }
 
     const isStoredMockOrder = payment.razorpayOrderId?.startsWith("order_mock_");
     const allowMock = !isProduction && isStoredMockOrder;
-
     if (isStoredMockOrder && !allowMock) {
       return res.status(400).json({ error: "Mock payments are disabled in production" });
     }
@@ -260,13 +285,21 @@ router.post("/confirm", protect, async (req, res) => {
     payment.razorpaySignature = allowMock ? "development-mock" : razorpaySignature;
     payment.paidAt = new Date();
 
+    const previousOrderStatus = order.status;
     order.payment.status = "completed";
     order.payment.transactionId = razorpayPaymentId;
     order.payment.paidAt = new Date();
     order.status = "confirmed";
+    if (previousOrderStatus !== "confirmed") {
+      order.statusHistory.push({
+        status: "confirmed",
+        timestamp: new Date(),
+        note: "Payment confirmed",
+      });
+    }
 
     await payment.save();
-    await createDeliveryAfterPayment(order, req.user);
+    await createDeliveriesAfterPayment(order, req.user);
     await order.save();
 
     return res.json({
@@ -301,9 +334,7 @@ router.post("/webhook", async (req, res) => {
   }
 
   const signature = req.headers["stripe-signature"];
-  if (!signature) {
-    return res.status(400).json({ error: "Stripe signature is required" });
-  }
+  if (!signature) return res.status(400).json({ error: "Stripe signature is required" });
 
   try {
     const event = stripe.webhooks.constructEvent(
@@ -322,10 +353,17 @@ router.post("/webhook", async (req, res) => {
         await payment.save();
 
         const order = await Order.findById(payment.order);
-        if (order) {
+        if (order && order.status !== "cancelled") {
           order.payment.status = "completed";
           order.payment.paidAt = new Date();
           order.status = "confirmed";
+          order.statusHistory.push({
+            status: "confirmed",
+            timestamp: new Date(),
+            note: "Stripe payment confirmed",
+          });
+          const buyer = await User.findById(order.buyer);
+          if (buyer) await createDeliveriesAfterPayment(order, buyer);
           await order.save();
         }
       }

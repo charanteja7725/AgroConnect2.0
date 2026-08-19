@@ -1,6 +1,24 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
+const mediaDocumentSchema = new mongoose.Schema(
+  {
+    url: String,
+    publicId: String,
+    resourceType: {
+      type: String,
+      enum: ["image", "video"],
+      default: "image",
+    },
+    deliveryType: {
+      type: String,
+      default: "authenticated",
+    },
+    uploadedAt: Date,
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     // Basic Information
@@ -128,36 +146,20 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
 
-    // Government farmer registry check (AgriStack verification provider)
+    // Manual farmer verification workflow only. There is intentionally no
+    // external farmer-registry/API verification here.
     farmerVerification: {
       status: {
         type: String,
-        enum: ["not_submitted", "pending", "more_information_required", "verified", "rejected", "suspended"],
+        enum: [
+          "not_submitted",
+          "pending",
+          "more_information_required",
+          "verified",
+          "rejected",
+          "suspended",
+        ],
         default: "not_submitted",
-      },
-      idType: {
-        type: String,
-        enum: ["centralid", "enrollmentnumber"],
-      },
-      farmerId: String,
-      farmerName: String,
-      farmerNumber: String,
-      centralId: String,
-      approvalStatus: String,
-      registrationStatus: String,
-      apiVerified: {
-        type: Boolean,
-        default: false,
-      },
-      provider: String,
-      source: String,
-      apiCheckedAt: Date,
-      identityDocumentUrl: String,
-      farmingProofUrl: String,
-      farmPhotoUrl: String,
-      farmLocation: {
-        latitude: Number,
-        longitude: Number,
       },
       submittedAt: Date,
       verifiedAt: Date,
@@ -200,7 +202,6 @@ const userSchema = new mongoose.Schema(
     resetPasswordToken: String,
     resetPasswordExpire: Date,
 
-    // Farmer verification workflow
     verificationStatus: {
       type: String,
       enum: [
@@ -213,17 +214,26 @@ const userSchema = new mongoose.Schema(
       ],
       default: "not_submitted",
     },
+
+    // Evidence submitted by the farmer for local/manual employee review.
     verificationDocuments: {
-      governmentId: { url: String, publicId: String, uploadedAt: Date },
-      farmerId: { url: String, publicId: String, uploadedAt: Date },
-      farmPhoto: { url: String, publicId: String, uploadedAt: Date },
-      gpsCoordinates: {
+      aadhaarFront: mediaDocumentSchema,
+      aadhaarBack: mediaDocumentSchema,
+      farmPhoto: mediaDocumentSchema,
+      farmingVideo: mediaDocumentSchema,
+      farmLocation: {
         latitude: Number,
         longitude: Number,
+        address: String,
+        village: String,
+        district: String,
+        state: String,
+        pincode: String,
       },
       submittedAt: Date,
       additionalNotes: String,
     },
+
     adminReview: {
       reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       reviewedAt: Date,

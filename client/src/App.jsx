@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { useNotification } from "./context/AppHooks.js";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
@@ -111,6 +111,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["fertilizer_seller"]}>
               <AddFertilizerProduct />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/fertilizer/edit-product/:id"
+          element={
+            <ProtectedRoute allowedRoles={["fertilizer_seller"]}>
+              <EditProduct />
             </ProtectedRoute>
           }
         />

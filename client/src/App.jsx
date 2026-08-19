@@ -15,6 +15,7 @@ import Cart from "./pages/buyer/Cart";
 import FertilizerDashboard from "./pages/fertilizer/FertilizerDashboard";
 import AddFertilizerProduct from "./pages/fertilizer/AddFertilizerProduct";
 import Verification from "./pages/Verification";
+import VerificationEmployeeDashboard from "./pages/verification/VerificationEmployeeDashboard";
 import DeliveryDashboard from "./pages/delivery/DeliveryDashboard";
 import DeliveryDetail from "./pages/delivery/DeliveryDetail";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -22,7 +23,6 @@ import NotFound from "./pages/NotFound.jsx";
 
 function NotificationList() {
   const { notifications } = useNotification();
-
   if (!notifications.length) return null;
 
   return (
@@ -46,8 +46,7 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/role" element={<RoleSelection />} />
         <Route path="/roles" element={<RoleSelection />} />
-        
-        {/* Buyer Routes */}
+
         <Route
           path="/buyer"
           element={
@@ -65,7 +64,6 @@ function App() {
           }
         />
 
-        {/* Farmer Routes */}
         <Route
           path="/farmer"
           element={
@@ -85,21 +83,20 @@ function App() {
         <Route
           path="/farmer/edit-product/:id"
           element={
-            <ProtectedRoute allowedRoles={["farmer", "fertilizer_seller"]}>
+            <ProtectedRoute allowedRoles={["farmer"]}>
               <EditProduct />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/fertilizer/add-product"
+          path="/verification"
           element={
-            <ProtectedRoute allowedRoles={["farmer", "fertilizer_seller"]}>
-              <AddProduct />
+            <ProtectedRoute allowedRoles={["farmer"]}>
+              <Verification />
             </ProtectedRoute>
           }
         />
 
-        {/* Fertilizer Routes */}
         <Route
           path="/fertilizer"
           element={
@@ -116,16 +113,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/verification"
-          element={
-            <ProtectedRoute allowedRoles={["farmer", "fertilizer_seller"]}>
-              <Verification />
-            </ProtectedRoute>
-          }
-        />
 
-        {/* Delivery Routes */}
         <Route
           path="/delivery"
           element={
@@ -143,7 +131,6 @@ function App() {
           }
         />
 
-        {/* Fertilizer Store */}
         <Route
           path="/fertilizer-store"
           element={
@@ -153,7 +140,15 @@ function App() {
           }
         />
 
-        {/* Admin Routes */}
+        <Route
+          path="/verification-employee"
+          element={
+            <ProtectedRoute allowedRoles={["verification_employee"]}>
+              <VerificationEmployeeDashboard />
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/admin"
           element={
@@ -162,6 +157,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

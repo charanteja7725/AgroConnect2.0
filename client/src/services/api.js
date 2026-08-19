@@ -168,8 +168,8 @@ const uploadVerificationFile = async (field, file) => {
   formData.append("timestamp", String(signatureData.timestamp));
   formData.append("signature", signatureData.signature);
   formData.append("folder", signatureData.folder);
+  formData.append("type", signatureData.type || "authenticated");
 
-  const deliveryType = signatureData.type || "authenticated";
   const controller = new AbortController();
   const directTimeoutMs = file.type?.startsWith("video/") ? 300000 : 120000;
   const timeoutId = setTimeout(() => controller.abort(), directTimeoutMs);
@@ -177,7 +177,7 @@ const uploadVerificationFile = async (field, file) => {
   let cloudinaryResult;
   try {
     const cloudinaryResponse = await fetch(
-      `https://api.cloudinary.com/v1_1/${encodeURIComponent(signatureData.cloudName)}/${encodeURIComponent(signatureData.resourceType)}/${encodeURIComponent(deliveryType)}`,
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(signatureData.cloudName)}/${encodeURIComponent(signatureData.resourceType)}/upload`,
       {
         method: "POST",
         body: formData,
@@ -193,6 +193,9 @@ const uploadVerificationFile = async (field, file) => {
   } catch (error) {
     if (error.name === "AbortError") {
       throw new Error("Verification media upload timed out. Please use a shorter/smaller file and try again.");
+    }
+    if (error instanceof TypeError && /fetch/i.test(error.message || "")) {
+      throw new Error("Unable to upload verification media to Cloudinary. Please check the network and retry.");
     }
     throw error;
   } finally {

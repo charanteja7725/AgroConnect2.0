@@ -61,7 +61,6 @@ const createDeliveryForOrder = async (order) => {
     if (!buyer) return;
 
     for (const sellerId of Object.keys(itemsBySeller)) {
-      // One delivery per seller/order. Repeated confirm calls must not duplicate deliveries.
       const existing = await Delivery.findOne({ order: order._id, sender: sellerId });
       if (existing) continue;
 
@@ -77,6 +76,11 @@ const createDeliveryForOrder = async (order) => {
             : [0, 0];
       const senderCoords =
         seller.location?.coordinates?.length === 2 ? seller.location.coordinates : [0, 0];
+      const sellerSubtotal = sellerItems.reduce(
+        (sum, item) => sum + (Number(item.totalPrice) || Number(item.price) * Number(item.quantity) || 0),
+        0
+      );
+      const deliveryCharge = Math.max(40, Math.round(sellerSubtotal * 0.05));
 
       await Delivery.create({
         type: sellerItems.some((item) => item.productType === "fertilizer")
@@ -105,6 +109,7 @@ const createDeliveryForOrder = async (order) => {
             order.deliveryAddress?.street,
             order.deliveryAddress?.city,
             order.deliveryAddress?.state,
+            order.deliveryAddress?.zipCode,
           ]
             .filter(Boolean)
             .join(", "),
@@ -116,6 +121,15 @@ const createDeliveryForOrder = async (order) => {
           weight: item.quantity,
         })),
         status: "assigned",
+        deliveryCharge,
+        totalEarnings: deliveryCharge,
+        statusHistory: [
+          {
+            status: "assigned",
+            timestamp: new Date(),
+            note: "Delivery job created when order was confirmed",
+          },
+        ],
       });
     }
   } catch (err) {
@@ -143,7 +157,6 @@ router.get("/", protect, async (req, res) => {
     } else if (req.user.role === "buyer") {
       query = { buyer: req.user._id };
     } else if (req.user.role === "farmer") {
-      // Farmers are sellers of produce and buyers of fertilizer.
       query = {
         $or: [{ buyer: req.user._id }, { "items.seller": req.user._id }],
       };
@@ -209,6 +222,16 @@ router.post("/create", protect, authorize("buyer", "farmer"), async (req, res) =
     if (!sanitizedDeliveryAddress) {
       return res.status(400).json({ error: "Invalid delivery address coordinates" });
     }
+
+    // Contact details may be omitted by older clients because they already
+    // exist on the authenticated account. Fill them from the trusted user profile.
+    sanitizedDeliveryAddress.fullName =
+      String(sanitizedDeliveryAddress.fullName || "").trim() ||
+      [req.user.firstName, req.user.lastName].filter(Boolean).join(" ");
+    sanitizedDeliveryAddress.phone =
+      String(sanitizedDeliveryAddress.phone || "").trim() || String(req.user.phone || "").trim();
+    sanitizedDeliveryAddress.country =
+      String(sanitizedDeliveryAddress.country || "").trim() || "India";
 
     const requiredAddressFields = ["fullName", "phone", "street", "city", "state", "zipCode"];
     if (
@@ -279,8 +302,6 @@ router.post("/create", protect, authorize("buyer", "farmer"), async (req, res) =
     const tax = Math.round(subtotal * 0.05);
     const totalAmount = subtotal + tax;
 
-    // Reserve inventory with conditional atomic decrements. If a later item
-    // fails, roll back items already reserved so partial checkout cannot lose stock.
     const reserved = [];
     try {
       for (const item of orderItems) {
@@ -414,7 +435,6 @@ router.put("/:id/status", protect, async (req, res) => {
     }
 
     await order.save();
-
     if (status === "confirmed") await createDeliveryForOrder(order);
 
     const io = req.app.get("io");

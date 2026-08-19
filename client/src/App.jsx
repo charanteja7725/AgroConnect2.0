@@ -19,6 +19,7 @@ import VerificationEmployeeDashboard from "./pages/verification/VerificationEmpl
 import DeliveryDashboard from "./pages/delivery/DeliveryDashboard";
 import DeliveryDetail from "./pages/delivery/DeliveryDetail";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import VerificationEmployees from "./pages/admin/VerificationEmployees";
 import NotFound from "./pages/NotFound.jsx";
 
 function NotificationList() {
@@ -154,6 +155,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
               <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/verification-employees"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <VerificationEmployees />
             </ProtectedRoute>
           }
         />

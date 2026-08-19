@@ -77,47 +77,137 @@ const apiRequest = async (endpoint, options = {}) => {
 };
 
 export const authAPI = {
-  register: (userData) => apiRequest("/auth/register", { method: "POST", body: JSON.stringify(userData) }),
-  login: (email, password) => apiRequest("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  register: (userData) =>
+    apiRequest("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(userData),
+    }),
+  login: (email, password) =>
+    apiRequest("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
   getMe: () => apiRequest("/auth/me"),
   logout: () => apiRequest("/auth/logout", { method: "POST" }),
-  forgotPassword: (email) => apiRequest("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
-  resetPassword: (token, password) => apiRequest(`/auth/reset-password/${token}`, { method: "POST", body: JSON.stringify({ password }) }),
+  forgotPassword: (email) =>
+    apiRequest("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (token, password) =>
+    apiRequest(`/auth/reset-password/${token}`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
 };
 
 export const userAPI = {
   getUser: (id) => apiRequest(`/users/${id}`),
-  updateProfile: (id, userData) => apiRequest(`/users/${id}`, { method: "PUT", body: JSON.stringify(userData) }),
-  getNearby: (longitude, latitude, maxDistance = 10, role = "farmer") => apiRequest(`/users/search/nearby?longitude=${encodeURIComponent(longitude)}&latitude=${encodeURIComponent(latitude)}&maxDistance=${encodeURIComponent(maxDistance)}&role=${encodeURIComponent(role)}`),
-  addReview: (userId, rating, comment) => apiRequest(`/users/${userId}/review`, { method: "POST", body: JSON.stringify({ rating, comment }) }),
+  updateProfile: (id, userData) =>
+    apiRequest(`/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(userData),
+    }),
+  getNearby: (longitude, latitude, maxDistance = 10, role = "farmer") =>
+    apiRequest(
+      `/users/search/nearby?longitude=${encodeURIComponent(
+        longitude
+      )}&latitude=${encodeURIComponent(latitude)}&maxDistance=${encodeURIComponent(
+        maxDistance
+      )}&role=${encodeURIComponent(role)}`
+    ),
+  addReview: (userId, rating, comment) =>
+    apiRequest(`/users/${userId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ rating, comment }),
+    }),
   getUsersByRole: (role) => apiRequest(`/users/role/${encodeURIComponent(role)}`),
   submitVerification: (data = {}) => {
-    const hasManualEvidence = Boolean(data.aadhaarFront || data.aadhaarBack || data.farmPhoto || data.farmingVideo || data.farmLocation);
+    const hasManualEvidence = Boolean(
+      data.aadhaarFront ||
+        data.aadhaarBack ||
+        data.farmPhoto ||
+        data.farmingVideo ||
+        data.farmLocation
+    );
+
     if (!hasManualEvidence && typeof window !== "undefined") {
       window.location.assign("/verification");
-      return Promise.resolve({ success: true, verificationStatus: "not_submitted", message: "Opening the complete manual farmer verification form..." });
+      return Promise.resolve({
+        success: true,
+        verificationStatus: "not_submitted",
+        message: "Opening the complete manual farmer verification form...",
+      });
     }
-    return apiRequest("/users/verify/submit", { method: "POST", body: JSON.stringify(data) });
+
+    return apiRequest("/users/verify/submit", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   },
-  getPendingVerifications: (status = "pending") => apiRequest(`/users/verify/pending?status=${encodeURIComponent(status)}`),
-  reviewVerification: (farmerId, action, notes = "", rejectionReason = "", moreInfoRequest = "") => apiRequest(`/users/verify/${farmerId}`, { method: "PUT", body: JSON.stringify({ action, notes, rejectionReason, moreInfoRequest }) }),
-  suspendUser: (userId, action) => apiRequest(`/users/${userId}/suspend`, { method: "PUT", body: JSON.stringify({ action }) }),
+  getPendingVerifications: (status = "pending") =>
+    apiRequest(`/users/verify/pending?status=${encodeURIComponent(status)}`),
+  reviewVerification: (
+    farmerId,
+    action,
+    notes = "",
+    rejectionReason = "",
+    moreInfoRequest = ""
+  ) =>
+    apiRequest(`/users/verify/${farmerId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        action,
+        notes,
+        rejectionReason,
+        moreInfoRequest,
+      }),
+    }),
+  suspendUser: (userId, action) =>
+    apiRequest(`/users/${userId}/suspend`, {
+      method: "PUT",
+      body: JSON.stringify({ action }),
+    }),
 };
 
 export const productAPI = {
-  getAllProducts: (filters = {}) => { const params = new URLSearchParams(filters); const queryString = params.toString(); return apiRequest(queryString ? `/products?${queryString}` : "/products"); },
+  getAllProducts: (filters = {}) => {
+    const params = new URLSearchParams(filters);
+    const queryString = params.toString();
+    return apiRequest(queryString ? `/products?${queryString}` : "/products");
+  },
   getProduct: (id) => apiRequest(`/products/${id}`),
-  createProduct: (productData) => apiRequest("/products", { method: "POST", body: JSON.stringify(productData) }),
-  updateProduct: (id, productData) => apiRequest(`/products/${id}`, { method: "PUT", body: JSON.stringify(productData) }),
+  createProduct: (productData) =>
+    apiRequest("/products", {
+      method: "POST",
+      body: JSON.stringify(productData),
+    }),
+  updateProduct: (id, productData) =>
+    apiRequest(`/products/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(productData),
+    }),
   deleteProduct: (id) => apiRequest(`/products/${id}`, { method: "DELETE" }),
   getSellerProducts: (sellerId) => apiRequest(`/products/seller/${sellerId}`),
-  addReview: (productId, rating, comment) => apiRequest(`/products/${productId}/review`, { method: "POST", body: JSON.stringify({ rating, comment }) }),
+  addReview: (productId, rating, comment) =>
+    apiRequest(`/products/${productId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ rating, comment }),
+    }),
 };
 
 export const cartAPI = {
   getCart: () => apiRequest("/cart"),
-  addToCart: (productId, quantity) => apiRequest("/cart/add", { method: "POST", body: JSON.stringify({ productId, quantity }) }),
-  updateCartItem: (itemId, quantity) => apiRequest(`/cart/update/${itemId}`, { method: "PUT", body: JSON.stringify({ quantity }) }),
+  addToCart: (productId, quantity) =>
+    apiRequest("/cart/add", {
+      method: "POST",
+      body: JSON.stringify({ productId, quantity }),
+    }),
+  updateCartItem: (itemId, quantity) =>
+    apiRequest(`/cart/update/${itemId}`, {
+      method: "PUT",
+      body: JSON.stringify({ quantity }),
+    }),
   removeFromCart: (itemId) => apiRequest(`/cart/remove/${itemId}`, { method: "DELETE" }),
   clearCart: () => apiRequest("/cart/clear", { method: "DELETE" }),
 };
@@ -125,118 +215,188 @@ export const cartAPI = {
 export const orderAPI = {
   getOrders: () => apiRequest("/orders"),
   getOrder: (id) => apiRequest(`/orders/${id}`),
-  createOrder: (orderData) => apiRequest("/orders/create", { method: "POST", body: JSON.stringify(orderData) }),
-  updateOrderStatus: (id, status, note) => apiRequest(`/orders/${id}/status`, { method: "PUT", body: JSON.stringify({ status, note }) }),
-  cancelOrder: (id, cancelReason) => apiRequest(`/orders/${id}/cancel`, { method: "POST", body: JSON.stringify({ cancelReason }) }),
+  createOrder: (orderData) =>
+    apiRequest("/orders/create", {
+      method: "POST",
+      body: JSON.stringify(orderData),
+    }),
+  updateOrderStatus: (id, status, note) =>
+    apiRequest(`/orders/${id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, note }),
+    }),
+  cancelOrder: (id, cancelReason) =>
+    apiRequest(`/orders/${id}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ cancelReason }),
+    }),
 };
 
 export const paymentAPI = {
-  createPaymentIntent: (orderId, amount) => apiRequest("/payments/create-intent", { method: "POST", body: JSON.stringify({ orderId, amount }) }),
-  confirmPayment: (paymentId, orderId, paymentData = {}) => apiRequest("/payments/confirm", { method: "POST", body: JSON.stringify({ paymentId, orderId, ...paymentData }) }),
+  createPaymentIntent: (orderId, amount) =>
+    apiRequest("/payments/create-intent", {
+      method: "POST",
+      body: JSON.stringify({ orderId, amount }),
+    }),
+  confirmPayment: (paymentId, orderId, paymentData = {}) =>
+    apiRequest("/payments/confirm", {
+      method: "POST",
+      body: JSON.stringify({ paymentId, orderId, ...paymentData }),
+    }),
   getPayment: (orderId) => apiRequest(`/payments/${orderId}`),
 };
 
 export const deliveryAPI = {
   getDeliveries: () => apiRequest("/delivery"),
   getDelivery: (id) => apiRequest(`/delivery/${id}`),
-  updateDeliveryStatus: (id, status, location, note) => apiRequest(`/delivery/${id}/status`, { method: "PUT", body: JSON.stringify({ status, location, note }) }),
+  updateDeliveryStatus: (id, status, location, note) =>
+    apiRequest(`/delivery/${id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, location, note }),
+    }),
   acceptDelivery: (id) => apiRequest(`/delivery/${id}/accept`, { method: "PUT" }),
-  getNearbyDeliveries: (longitude, latitude, maxDistance = 10) => apiRequest(`/delivery/nearby?longitude=${encodeURIComponent(longitude)}&latitude=${encodeURIComponent(latitude)}&maxDistance=${encodeURIComponent(maxDistance)}`),
+  getNearbyDeliveries: (longitude, latitude, maxDistance = 10) =>
+    apiRequest(
+      `/delivery/nearby?longitude=${encodeURIComponent(
+        longitude
+      )}&latitude=${encodeURIComponent(latitude)}&maxDistance=${encodeURIComponent(
+        maxDistance
+      )}`
+    ),
 };
 
 export const pricingAPI = {
-  suggestPrice: (productType, category, quantity, currentPrice) => apiRequest("/pricing/suggest", { method: "POST", body: JSON.stringify({ productType, category, quantity, currentPrice }) }),
+  suggestPrice: (productType, category, quantity, currentPrice) =>
+    apiRequest("/pricing/suggest", {
+      method: "POST",
+      body: JSON.stringify({ productType, category, quantity, currentPrice }),
+    }),
   getTrends: (category) => apiRequest(`/pricing/trends/${encodeURIComponent(category)}`),
   getMarketAnalysis: () => apiRequest("/pricing/market-analysis"),
 };
 
-const uploadVerificationFile = async (field, file) => {
-  if (!file) throw new Error("Select a verification file before uploading.");
-  if (!Number.isFinite(file.size) || file.size <= 0) {
-    throw new Error("The selected verification file is empty. Please choose the file again.");
+const uploadVerificationFile = (endpoint, file, timeoutMs) => {
+  if (!file) {
+    return Promise.reject(new Error("Select a verification file before uploading."));
   }
 
-  const signatureData = await apiRequest("/upload/verification/signature", {
-    method: "POST",
-    body: JSON.stringify({ field }),
-    timeoutMs: 20000,
-  });
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    return Promise.reject(
+      new Error("The selected verification file is empty. Please choose the file again.")
+    );
+  }
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("api_key", signatureData.apiKey);
-  formData.append("timestamp", String(signatureData.timestamp));
-  formData.append("signature", signatureData.signature);
-  formData.append("folder", signatureData.folder);
-  formData.append("type", signatureData.type || "authenticated");
 
-  const controller = new AbortController();
-  const directTimeoutMs = file.type?.startsWith("video/") ? 300000 : 120000;
-  const timeoutId = setTimeout(() => controller.abort(), directTimeoutMs);
-
-  let cloudinaryResult;
-  try {
-    // Cloudinary's browser upload API uses the standard /upload endpoint.
-    // The authenticated delivery type is supplied as a signed form parameter.
-    const cloudinaryResponse = await fetch(
-      `https://api.cloudinary.com/v1_1/${encodeURIComponent(signatureData.cloudName)}/${encodeURIComponent(signatureData.resourceType)}/upload`,
-      {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      }
-    );
-
-    cloudinaryResult = await cloudinaryResponse.json();
-
-    if (!cloudinaryResponse.ok) {
-      throw new Error(cloudinaryResult?.error?.message || "Cloudinary verification upload failed");
-    }
-  } catch (error) {
-    if (error.name === "AbortError") {
-      throw new Error("Verification media upload timed out. Please use a shorter/smaller file and try again.");
-    }
-    if (error instanceof TypeError && /fetch/i.test(error.message || "")) {
-      throw new Error("Unable to upload verification media to Cloudinary. Please check the network and retry.");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  return apiRequest("/upload/verification/complete", {
+  return apiRequest(endpoint, {
     method: "POST",
-    body: JSON.stringify({ field, publicId: cloudinaryResult.public_id }),
-    timeoutMs: 30000,
+    body: formData,
+    timeoutMs,
   });
 };
 
 export const uploadAPI = {
-  uploadImage: (formData) => apiRequest("/upload/image", { method: "POST", body: formData, timeoutMs: 120000 }),
-  uploadAadhaarFront: (file) => uploadVerificationFile("aadhaarFront", file),
-  uploadAadhaarBack: (file) => uploadVerificationFile("aadhaarBack", file),
-  uploadFarmPhoto: (file) => uploadVerificationFile("farmPhoto", file),
-  uploadFarmingVideo: (file) => uploadVerificationFile("farmingVideo", file),
+  uploadImage: (formData) =>
+    apiRequest("/upload/image", {
+      method: "POST",
+      body: formData,
+      timeoutMs: 180000,
+    }),
+
+  uploadAadhaarFront: (file) =>
+    uploadVerificationFile(
+      "/upload/verification/aadhaar-front",
+      file,
+      180000
+    ),
+
+  uploadAadhaarBack: (file) =>
+    uploadVerificationFile(
+      "/upload/verification/aadhaar-back",
+      file,
+      180000
+    ),
+
+  uploadFarmPhoto: (file) =>
+    uploadVerificationFile(
+      "/upload/verification/farm-photo",
+      file,
+      180000
+    ),
+
+  uploadFarmingVideo: (file) =>
+    uploadVerificationFile(
+      "/upload/verification/farming-video",
+      file,
+      600000
+    ),
 };
 
 export const notificationAPI = {
   getNotifications: () => apiRequest("/notifications"),
-  markAsRead: (notificationId) => apiRequest(`/notifications/${notificationId}/read`, { method: "PUT" }),
-  sendNotification: (userId, title, message, type) => apiRequest("/notifications/send", { method: "POST", body: JSON.stringify({ userId, title, message, type }) }),
+  markAsRead: (notificationId) =>
+    apiRequest(`/notifications/${notificationId}/read`, { method: "PUT" }),
+  sendNotification: (userId, title, message, type) =>
+    apiRequest("/notifications/send", {
+      method: "POST",
+      body: JSON.stringify({ userId, title, message, type }),
+    }),
 };
 
 export const adminAPI = {
   getStats: () => apiRequest("/admin/stats"),
-  getUsers: (params = {}) => { const query = new URLSearchParams(params).toString(); return apiRequest(query ? `/admin/users?${query}` : "/admin/users"); },
-  getOrders: (params = {}) => { const query = new URLSearchParams(params).toString(); return apiRequest(query ? `/admin/orders?${query}` : "/admin/orders"); },
-  getProducts: (params = {}) => { const query = new URLSearchParams(params).toString(); return apiRequest(query ? `/admin/products?${query}` : "/admin/products"); },
-  getDeliveries: (params = {}) => { const query = new URLSearchParams(params).toString(); return apiRequest(query ? `/admin/deliveries?${query}` : "/admin/deliveries"); },
-  updateUserStatus: (userId, isActive) => apiRequest(`/admin/users/${userId}/status`, { method: "PUT", body: JSON.stringify({ isActive }) }),
-  updateOrderStatus: (orderId, status, note) => apiRequest(`/admin/orders/${orderId}/status`, { method: "PUT", body: JSON.stringify({ status, note }) }),
-  deleteProduct: (productId) => apiRequest(`/admin/products/${productId}`, { method: "DELETE" }),
+  getUsers: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(query ? `/admin/users?${query}` : "/admin/users");
+  },
+  getOrders: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(query ? `/admin/orders?${query}` : "/admin/orders");
+  },
+  getProducts: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(query ? `/admin/products?${query}` : "/admin/products");
+  },
+  getDeliveries: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiRequest(query ? `/admin/deliveries?${query}` : "/admin/deliveries");
+  },
+  updateUserStatus: (userId, isActive) =>
+    apiRequest(`/admin/users/${userId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ isActive }),
+    }),
+  updateOrderStatus: (orderId, status, note) =>
+    apiRequest(`/admin/orders/${orderId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, note }),
+    }),
+  deleteProduct: (productId) =>
+    apiRequest(`/admin/products/${productId}`, { method: "DELETE" }),
   getVerifications: () => apiRequest("/admin/verifications"),
-  reviewVerification: (userId, status, reviewNotes) => apiRequest(`/admin/verifications/${userId}`, { method: "PUT", body: JSON.stringify({ status, reviewNotes }) }),
-  sendNotification: (userIds, title, message, type) => apiRequest("/admin/notifications/send", { method: "POST", body: JSON.stringify({ userIds, title, message, type }) }),
+  reviewVerification: (userId, status, reviewNotes) =>
+    apiRequest(`/admin/verifications/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status, reviewNotes }),
+    }),
+  sendNotification: (userIds, title, message, type) =>
+    apiRequest("/admin/notifications/send", {
+      method: "POST",
+      body: JSON.stringify({ userIds, title, message, type }),
+    }),
 };
 
-export default { authAPI, userAPI, productAPI, cartAPI, orderAPI, paymentAPI, deliveryAPI, pricingAPI, uploadAPI, notificationAPI, adminAPI };
+export default {
+  authAPI,
+  userAPI,
+  productAPI,
+  cartAPI,
+  orderAPI,
+  paymentAPI,
+  deliveryAPI,
+  pricingAPI,
+  uploadAPI,
+  notificationAPI,
+  adminAPI,
+};

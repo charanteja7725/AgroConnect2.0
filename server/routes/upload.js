@@ -1,22 +1,13 @@
 const express = require("express");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const User = require("../models/User");
 const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
-const storage = multer.memoryStorage();
-
-const imageUpload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Only image files are allowed"));
-    }
-    cb(null, true);
-  },
-});
 
 const cloudinaryCloudName =
   process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_NAME || "";
@@ -26,13 +17,6 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-
-const VERIFICATION_FIELDS = {
-  aadhaarFront: { resourceType: "image", label: "Aadhaar front image" },
-  aadhaarBack: { resourceType: "image", label: "Aadhaar back image" },
-  farmPhoto: { resourceType: "image", label: "Farm photo" },
-  farmingVideo: { resourceType: "video", label: "Farming video" },
-};
 
 const ensureCloudinaryConfigured = () => {
   if (!cloudinaryCloudName) {
@@ -45,17 +29,29 @@ const ensureCloudinaryConfigured = () => {
 
 const ensureFarmerCanReplaceEvidence = async (userId) => {
   const currentUser = await User.findById(userId).select("verificationStatus");
+
   if (!currentUser) throw new Error("Farmer account not found");
+
   if (currentUser.verificationStatus === "verified") {
     throw new Error("Verified farmer evidence cannot be replaced without admin review");
   }
+
   if (currentUser.verificationStatus === "suspended") {
     throw new Error("Suspended farmer accounts cannot upload verification evidence");
   }
 };
 
-const persistVerificationMedia = async (userId, field, uploadResult, resourceType) => {
+const persistVerificationMedia = async (
+  userId,
+  field,
+  uploadResult,
+  resourceType
+) => {
   await ensureFarmerCanReplaceEvidence(userId);
+
+  if (!uploadResult?.public_id || Number(uploadResult?.bytes || 0) <= 0) {
+    throw new Error("Cloudinary returned an empty upload result");
+  }
 
   const media = {
     url: uploadResult.secure_url || "",
@@ -72,25 +68,143 @@ const persistVerificationMedia = async (userId, field, uploadResult, resourceTyp
   return media;
 };
 
-const uploadBuffer = (file, folder, resourceType = "image") => {
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype?.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed"));
+    }
+    return cb(null, true);
+  },
+});
+
+const videoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, os.tmpdir()),
+  filename: (req, file, cb) => {
+    const extension = path.extname(file.originalname || "").slice(0, 10);
+    const random = Math.random().toString(36).slice(2);
+    cb(
+      null,
+      `agroconnect-verification-${req.user?._id || "farmer"}-${Date.now()}-${random}${extension}`
+    );
+  },
+});
+
+const videoUpload = multer({
+  storage: videoStorage,
+  limits: { fileSize: 60 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype?.startsWith("video/")) {
+      return cb(new Error("Only video files are allowed"));
+    }
+    return cb(null, true);
+  },
+});
+
+const uploadImageBuffer = (
+  file,
+  folder,
+  deliveryType = "upload"
+) => {
   ensureCloudinaryConfigured();
 
+  if (!file?.buffer?.length) {
+    return Promise.reject(new Error("Uploaded image is empty"));
+  }
+
   return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+
+      if (error) return reject(error);
+
+      if (!result?.public_id || Number(result?.bytes || 0) <= 0) {
+        return reject(new Error("Cloudinary returned an empty image result"));
+      }
+
+      return resolve(result);
+    };
+
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
-        resource_type: resourceType,
-        timeout: 120000,
+        resource_type: "image",
+        type: deliveryType,
+        timeout: 180000,
       },
-      (error, result) => {
-        if (error) return reject(error);
-        if (!result) return reject(new Error("Cloudinary returned no upload result"));
-        return resolve(result);
-      }
+      finish
     );
 
-    uploadStream.on("error", reject);
+    uploadStream.once("error", (error) => finish(error));
     uploadStream.end(file.buffer);
+  });
+};
+
+const uploadVideoFile = (filePath, folder) => {
+  ensureCloudinaryConfigured();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (error, result) => {
+      if (settled) return;
+
+      if (error) {
+        settled = true;
+        return reject(error);
+      }
+
+      if (result?.done === false) return;
+
+      settled = true;
+
+      if (!result?.public_id || Number(result?.bytes || 0) <= 0) {
+        return reject(new Error("Cloudinary returned an empty video result"));
+      }
+
+      return resolve(result);
+    };
+
+    try {
+      const uploadStream = cloudinary.uploader.upload_large(
+        filePath,
+        {
+          folder,
+          resource_type: "video",
+          type: "authenticated",
+          chunk_size: 6 * 1024 * 1024,
+          timeout: 600000,
+        },
+        finish
+      );
+
+      if (uploadStream?.once) {
+        uploadStream.once("error", (error) => finish(error));
+      }
+    } catch (error) {
+      finish(error);
+    }
+  });
+};
+
+const sendUploadError = (res, label, error) => {
+  console.error(`${label} upload error:`, error);
+
+  const message = String(error?.message || "");
+  const timedOut = Number(error?.http_code) === 499 || /timeout/i.test(message);
+
+  if (timedOut) {
+    return res.status(504).json({
+      error: `${label} upload timed out. Try a shorter or smaller file and submit again.`,
+    });
+  }
+
+  return res.status(500).json({
+    error: message || `Unable to upload ${label}`,
   });
 };
 
@@ -101,128 +215,114 @@ router.post(
   imageUpload.single("image"),
   async (req, res) => {
     try {
-      if (!req.file || !req.file.buffer?.length) {
+      if (!req.file?.buffer?.length) {
         return res.status(400).json({ error: "No image file uploaded" });
       }
 
-      const uploadResult = await uploadBuffer(
+      const result = await uploadImageBuffer(
         req.file,
         "agroconnect/products",
-        "image"
+        "upload"
       );
 
       return res.json({
         success: true,
-        url: uploadResult.secure_url,
-        publicId: uploadResult.public_id,
+        url: result.secure_url,
+        publicId: result.public_id,
       });
-    } catch (err) {
-      console.error("Cloudinary upload error:", err);
-      const timedOut = err?.http_code === 499 || /timeout/i.test(err?.message || "");
-      return res.status(timedOut ? 504 : 500).json({
-        error: timedOut
-          ? "Media upload timed out. Please retry with a smaller image."
-          : err.message || "Error uploading image",
-      });
+    } catch (error) {
+      return sendUploadError(res, "Product image", error);
     }
   }
 );
 
+const createVerificationImageRoute = ({ routePath, field, label }) => {
+  router.post(
+    routePath,
+    protect,
+    authorize("farmer"),
+    imageUpload.single("file"),
+    async (req, res) => {
+      try {
+        if (!req.file?.buffer?.length) {
+          return res.status(400).json({ error: `${label} is empty or missing` });
+        }
+
+        await ensureFarmerCanReplaceEvidence(req.user._id);
+
+        const result = await uploadImageBuffer(
+          req.file,
+          `agroconnect/verification/${req.user._id}/${field}`,
+          "authenticated"
+        );
+
+        const media = await persistVerificationMedia(
+          req.user._id,
+          field,
+          result,
+          "image"
+        );
+
+        return res.json({ success: true, ...media });
+      } catch (error) {
+        return sendUploadError(res, label, error);
+      }
+    }
+  );
+};
+
+createVerificationImageRoute({
+  routePath: "/verification/aadhaar-front",
+  field: "aadhaarFront",
+  label: "Aadhaar front image",
+});
+
+createVerificationImageRoute({
+  routePath: "/verification/aadhaar-back",
+  field: "aadhaarBack",
+  label: "Aadhaar back image",
+});
+
+createVerificationImageRoute({
+  routePath: "/verification/farm-photo",
+  field: "farmPhoto",
+  label: "Farm photo",
+});
+
 router.post(
-  "/verification/signature",
+  "/verification/farming-video",
   protect,
   authorize("farmer"),
+  videoUpload.single("file"),
   async (req, res) => {
-    try {
-      ensureCloudinaryConfigured();
-      await ensureFarmerCanReplaceEvidence(req.user._id);
+    const temporaryPath = req.file?.path;
 
-      const field = String(req.body.field || "");
-      const config = VERIFICATION_FIELDS[field];
-      if (!config) {
-        return res.status(400).json({ error: "Invalid verification media field" });
+    try {
+      if (!temporaryPath || !req.file?.size) {
+        return res.status(400).json({ error: "Farming video is empty or missing" });
       }
 
-      const timestamp = Math.floor(Date.now() / 1000);
-      const folder = `agroconnect/verification/${req.user._id}/${field}`;
-      const type = "authenticated";
+      await ensureFarmerCanReplaceEvidence(req.user._id);
 
-      // Browser uploads use Cloudinary's standard /upload endpoint. Because
-      // the delivery type is sent as a form parameter, it must be included in
-      // the signed parameter set as well.
-      const paramsToSign = { folder, timestamp, type };
-      const signature = cloudinary.utils.api_sign_request(
-        paramsToSign,
-        process.env.CLOUDINARY_API_SECRET
+      const result = await uploadVideoFile(
+        temporaryPath,
+        `agroconnect/verification/${req.user._id}/farmingVideo`
       );
-
-      return res.json({
-        success: true,
-        cloudName: cloudinaryCloudName,
-        apiKey: process.env.CLOUDINARY_API_KEY,
-        timestamp,
-        signature,
-        folder,
-        type,
-        resourceType: config.resourceType,
-      });
-    } catch (err) {
-      return res.status(500).json({
-        error: err.message || "Unable to create verification upload signature",
-      });
-    }
-  }
-);
-
-router.post(
-  "/verification/complete",
-  protect,
-  authorize("farmer"),
-  async (req, res) => {
-    try {
-      ensureCloudinaryConfigured();
-      await ensureFarmerCanReplaceEvidence(req.user._id);
-
-      const field = String(req.body.field || "");
-      const publicId = String(req.body.publicId || "").trim();
-      const config = VERIFICATION_FIELDS[field];
-
-      if (!config || !publicId) {
-        return res.status(400).json({
-          error: "Verification field and uploaded asset ID are required",
-        });
-      }
-
-      const expectedPrefix = `agroconnect/verification/${req.user._id}/${field}/`;
-      if (!publicId.startsWith(expectedPrefix)) {
-        return res.status(400).json({ error: "Uploaded verification asset is invalid" });
-      }
-
-      const asset = await cloudinary.api.resource(publicId, {
-        resource_type: config.resourceType,
-        type: "authenticated",
-      });
-
-      if (!asset || !asset.public_id || Number(asset.bytes || 0) <= 0) {
-        return res.status(400).json({ error: "Uploaded verification file is empty or unavailable" });
-      }
 
       const media = await persistVerificationMedia(
         req.user._id,
-        field,
-        asset,
-        config.resourceType
+        "farmingVideo",
+        result,
+        "video"
       );
 
       return res.json({ success: true, ...media });
-    } catch (err) {
-      console.error("Verification upload completion error:", err);
-      const notFound = Number(err?.http_code) === 404;
-      return res.status(notFound ? 400 : 500).json({
-        error: notFound
-          ? "Cloudinary could not find the uploaded verification file"
-          : err.message || "Unable to save verification upload",
-      });
+    } catch (error) {
+      return sendUploadError(res, "Farming video", error);
+    } finally {
+      if (temporaryPath) {
+        fs.promises.unlink(temporaryPath).catch(() => {});
+      }
     }
   }
 );
@@ -230,7 +330,10 @@ router.post(
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({
-      error: err.code === "LIMIT_FILE_SIZE" ? "Uploaded file is too large" : err.message,
+      error:
+        err.code === "LIMIT_FILE_SIZE"
+          ? "Uploaded file is too large"
+          : err.message,
     });
   }
 
@@ -238,7 +341,7 @@ router.use((err, req, res, next) => {
     return res.status(400).json({ error: err.message || "Invalid upload" });
   }
 
-  next();
+  return next();
 });
 
 module.exports = router;

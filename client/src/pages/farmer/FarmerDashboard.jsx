@@ -4,6 +4,51 @@ import { useNavigate } from "react-router-dom";
 import { useAuth, useNotification } from "../../context/AppHooks.js";
 import { productAPI, orderAPI, pricingAPI, userAPI } from "../../services/api";
 
+
+// Safely convert delivery address data into renderable text.
+// The API returns deliveryAddress as an object, and React cannot render
+// a plain object directly as a child.
+const formatAddress = (address) => {
+  if (!address) return "Address not available";
+
+  if (typeof address === "string" || typeof address === "number") {
+    return String(address);
+  }
+
+  if (Array.isArray(address)) {
+    return address
+      .filter((value) => typeof value === "string" || typeof value === "number")
+      .join(", ") || "Address not available";
+  }
+
+  if (typeof address !== "object") {
+    return "Address not available";
+  }
+
+  const parts = [
+    address.fullName,
+    address.phone,
+    address.street,
+    address.city,
+    address.state,
+    address.zipCode,
+    address.country,
+  ]
+    .filter((value) => typeof value === "string" || typeof value === "number")
+    .map(String)
+    .filter(Boolean);
+
+  const baseAddress = parts.join(", ");
+  const landmark =
+    typeof address.landmark === "string" && address.landmark.trim()
+      ? ` (Landmark: ${address.landmark.trim()})`
+      : "";
+
+  return baseAddress
+    ? `${baseAddress}${landmark}`
+    : "Address not available";
+};
+
 const FarmerDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -340,7 +385,7 @@ const FarmerDashboard = () => {
                           <strong>Buyer:</strong> {order.buyer?.firstName} {order.buyer?.lastName} ({order.buyer?.phone || "N/A"})
                         </p>
                         <p className="info-item">
-                          <strong>Delivery Address:</strong> {order.deliveryAddress || "Standard Address"}
+                          <strong>Delivery Address:</strong> {formatAddress(order.deliveryAddress)}
                         </p>
                         <p className="info-item">
                           <strong>Total Order Value:</strong> <span className="highlight-price">₹{order.totalAmount}</span>
@@ -855,4 +900,4 @@ const FarmerDashboard = () => {
   );
 };
 
-export default FarmerDashboard;
+export default FarmerDashboard;

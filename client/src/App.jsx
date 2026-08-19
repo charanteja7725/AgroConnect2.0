@@ -59,7 +59,7 @@ function App() {
         <Route
           path="/buyer/cart"
           element={
-            <ProtectedRoute allowedRoles={["buyer"]}>
+            <ProtectedRoute allowedRoles={["buyer", "farmer"]}>
               <Cart />
             </ProtectedRoute>
           }

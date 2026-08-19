@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
+const User = require("../models/User");
 const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
@@ -68,7 +69,37 @@ const verificationResponse = (uploadResult, resourceType) => ({
   deliveryType: "authenticated",
 });
 
-// Normal product image upload.
+const persistVerificationMedia = async (userId, field, uploadResult, resourceType) => {
+  const media = {
+    url: uploadResult.secure_url || "",
+    publicId: uploadResult.public_id,
+    resourceType,
+    deliveryType: "authenticated",
+    uploadedAt: new Date(),
+  };
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new Error("Farmer account not found");
+  }
+
+  if (user.verificationStatus === "verified") {
+    throw new Error("Verified farmer evidence cannot be replaced without admin review");
+  }
+
+  if (user.verificationStatus === "suspended") {
+    throw new Error("Suspended farmer accounts cannot upload verification evidence");
+  }
+
+  if (!user.verificationDocuments) {
+    user.verificationDocuments = {};
+  }
+
+  user.verificationDocuments[field] = media;
+  await user.save();
+  return media;
+};
+
 router.post(
   "/image",
   protect,
@@ -99,114 +130,73 @@ router.post(
   }
 );
 
-// Aadhaar and verification evidence are stored as authenticated Cloudinary
-// assets so they are not normal public product media.
-router.post(
-  "/verification/aadhaar-front",
-  protect,
-  authorize("farmer"),
-  imageUpload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Aadhaar front image is required" });
+const createVerificationUploadRoute = ({ path, field, label, resourceType, middleware }) => {
+  router.post(
+    path,
+    protect,
+    authorize("farmer"),
+    middleware.single("file"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: `${label} is required` });
+        }
+
+        const result = await uploadBuffer(
+          req.file,
+          `agroconnect/verification/${req.user._id}/${field}`,
+          resourceType,
+          "authenticated"
+        );
+
+        const media = await persistVerificationMedia(
+          req.user._id,
+          field,
+          result,
+          resourceType
+        );
+
+        return res.json({ success: true, ...media });
+      } catch (err) {
+        console.error(`${label} upload error:`, err);
+        return res.status(500).json({ error: err.message || `Error uploading ${label}` });
       }
-
-      const result = await uploadBuffer(
-        req.file,
-        `agroconnect/verification/${req.user._id}/aadhaar-front`,
-        "image",
-        "authenticated"
-      );
-
-      return res.json(verificationResponse(result, "image"));
-    } catch (err) {
-      console.error("Aadhaar front upload error:", err);
-      return res.status(500).json({ error: err.message || "Error uploading Aadhaar front" });
     }
-  }
-);
+  );
+};
 
-router.post(
-  "/verification/aadhaar-back",
-  protect,
-  authorize("farmer"),
-  imageUpload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Aadhaar back image is required" });
-      }
+createVerificationUploadRoute({
+  path: "/verification/aadhaar-front",
+  field: "aadhaarFront",
+  label: "Aadhaar front image",
+  resourceType: "image",
+  middleware: imageUpload,
+});
 
-      const result = await uploadBuffer(
-        req.file,
-        `agroconnect/verification/${req.user._id}/aadhaar-back`,
-        "image",
-        "authenticated"
-      );
+createVerificationUploadRoute({
+  path: "/verification/aadhaar-back",
+  field: "aadhaarBack",
+  label: "Aadhaar back image",
+  resourceType: "image",
+  middleware: imageUpload,
+});
 
-      return res.json(verificationResponse(result, "image"));
-    } catch (err) {
-      console.error("Aadhaar back upload error:", err);
-      return res.status(500).json({ error: err.message || "Error uploading Aadhaar back" });
-    }
-  }
-);
+createVerificationUploadRoute({
+  path: "/verification/farm-photo",
+  field: "farmPhoto",
+  label: "Farm photo",
+  resourceType: "image",
+  middleware: imageUpload,
+});
 
-router.post(
-  "/verification/farm-photo",
-  protect,
-  authorize("farmer"),
-  imageUpload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Farm photo is required" });
-      }
+createVerificationUploadRoute({
+  path: "/verification/farming-video",
+  field: "farmingVideo",
+  label: "Farming video",
+  resourceType: "video",
+  middleware: videoUpload,
+});
 
-      const result = await uploadBuffer(
-        req.file,
-        `agroconnect/verification/${req.user._id}/farm-photo`,
-        "image",
-        "authenticated"
-      );
-
-      return res.json(verificationResponse(result, "image"));
-    } catch (err) {
-      console.error("Farm photo upload error:", err);
-      return res.status(500).json({ error: err.message || "Error uploading farm photo" });
-    }
-  }
-);
-
-router.post(
-  "/verification/farming-video",
-  protect,
-  authorize("farmer"),
-  videoUpload.single("file"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "Farming video is required" });
-      }
-
-      const result = await uploadBuffer(
-        req.file,
-        `agroconnect/verification/${req.user._id}/farming-video`,
-        "video",
-        "authenticated"
-      );
-
-      return res.json(verificationResponse(result, "video"));
-    } catch (err) {
-      console.error("Farming video upload error:", err);
-      return res.status(500).json({ error: err.message || "Error uploading farming video" });
-    }
-  }
-);
-
-// Multer errors are converted to readable JSON responses instead of the
-// default HTML error page.
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({

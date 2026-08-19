@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
-    // Basic Information
     name: {
       type: String,
       required: [true, "Please provide product name"],
@@ -11,6 +10,7 @@ const productSchema = new mongoose.Schema(
     description: {
       type: String,
       required: [true, "Please provide product description"],
+      trim: true,
     },
     type: {
       type: String,
@@ -28,11 +28,11 @@ const productSchema = new mongoose.Schema(
         "pesticide",
         "seeds",
         "equipment",
+        "other",
       ],
       required: true,
     },
 
-    // Seller/Farmer Information
     seller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -40,13 +40,12 @@ const productSchema = new mongoose.Schema(
     },
     sellerName: String,
 
-    // Pricing and Inventory
     price: {
       type: Number,
       required: [true, "Please provide product price"],
       min: 0,
     },
-    originalPrice: Number, // For tracking AI-suggested price
+    originalPrice: Number,
     quantity: {
       type: Number,
       required: [true, "Please provide product quantity"],
@@ -58,16 +57,14 @@ const productSchema = new mongoose.Schema(
       default: "kg",
     },
 
-    // Images
     images: [
       {
         url: String,
-        publicId: String, // For Cloudinary
+        publicId: String,
       },
     ],
     mainImage: String,
 
-    // Location
     location: {
       type: {
         type: String,
@@ -76,17 +73,22 @@ const productSchema = new mongoose.Schema(
       },
       coordinates: {
         type: [Number],
-        required:true // [longitude, latitude]
+        required: true,
+        validate: {
+          validator: (value) =>
+            Array.isArray(value) &&
+            value.length === 2 &&
+            value.every((coordinate) => Number.isFinite(Number(coordinate))),
+          message: "Product location must contain longitude and latitude",
+        },
       },
     },
     address: String,
 
-    // Product Details (for produce)
     harvestDate: Date,
     organicCertified: Boolean,
     pesticidesUsed: String,
 
-    // Product Details (for fertilizers)
     composition: {
       nitrogen: Number,
       phosphorus: Number,
@@ -95,7 +97,6 @@ const productSchema = new mongoose.Schema(
     validUntil: Date,
     dosagePerAcre: String,
 
-    // Ratings and Reviews
     rating: {
       type: Number,
       default: 0,
@@ -116,7 +117,6 @@ const productSchema = new mongoose.Schema(
       },
     ],
 
-    // Stock Status
     inStock: {
       type: Boolean,
       default: true,
@@ -127,7 +127,6 @@ const productSchema = new mongoose.Schema(
       default: "in_stock",
     },
 
-    // AI Pricing Info
     aiSuggestedPrice: Number,
     aiSuggestionDate: Date,
     marketTrend: {
@@ -136,7 +135,6 @@ const productSchema = new mongoose.Schema(
       default: "stable",
     },
 
-    // Statistics
     totalSold: {
       type: Number,
       default: 0,
@@ -146,7 +144,6 @@ const productSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // Status
     isActive: {
       type: Boolean,
       default: true,
@@ -157,7 +154,6 @@ const productSchema = new mongoose.Schema(
     },
     verificationNote: String,
 
-    // Additional Info
     tags: [String],
     metadata: {
       shelfLife: String,
@@ -167,19 +163,14 @@ const productSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    index: { location: "2dsphere", name: "text" }, // For geospatial and text search
   }
 );
 
-// Index for geospatial queries
 productSchema.index({ location: "2dsphere" });
-
-// Index for filtering and searching
-productSchema.index({ location: "2dsphere" });
+productSchema.index({ name: "text", description: "text" });
 productSchema.index({ seller: 1, category: 1, isActive: 1 });
 productSchema.index({ price: 1, rating: 1 });
 
-// Virtual for availability
 productSchema.virtual("available").get(function () {
   return this.quantity > 0 && this.isActive;
 });

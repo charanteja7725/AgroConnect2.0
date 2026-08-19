@@ -176,6 +176,8 @@ const uploadVerificationFile = async (field, file) => {
 
   let cloudinaryResult;
   try {
+    // Cloudinary's browser upload API uses the standard /upload endpoint.
+    // The authenticated delivery type is supplied as a signed form parameter.
     const cloudinaryResponse = await fetch(
       `https://api.cloudinary.com/v1_1/${encodeURIComponent(signatureData.cloudName)}/${encodeURIComponent(signatureData.resourceType)}/upload`,
       {

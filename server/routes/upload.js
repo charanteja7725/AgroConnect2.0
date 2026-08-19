@@ -147,6 +147,9 @@ router.post(
       const folder = `agroconnect/verification/${req.user._id}/${field}`;
       const type = "authenticated";
 
+      // Browser uploads use Cloudinary's standard /upload endpoint. Because
+      // the delivery type is sent as a form parameter, it must be included in
+      // the signed parameter set as well.
       const paramsToSign = { folder, timestamp, type };
       const signature = cloudinary.utils.api_sign_request(
         paramsToSign,

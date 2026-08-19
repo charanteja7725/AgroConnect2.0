@@ -135,11 +135,32 @@ export const userAPI = {
   getUsersByRole: (role) =>
     apiRequest(`/users/role/${encodeURIComponent(role)}`),
 
-  submitVerification: (data) =>
-    apiRequest("/users/verify/submit", {
+  submitVerification: (data = {}) => {
+    const hasManualEvidence = Boolean(
+      data.aadhaarFront ||
+        data.aadhaarBack ||
+        data.farmPhoto ||
+        data.farmingVideo ||
+        data.farmLocation
+    );
+
+    // The farmer dashboard previously had a small notes-only form. Redirect
+    // that legacy action to the complete manual verification page instead of
+    // allowing an incomplete verification submission.
+    if (!hasManualEvidence && typeof window !== "undefined") {
+      window.location.assign("/verification");
+      return Promise.resolve({
+        success: true,
+        verificationStatus: "not_submitted",
+        message: "Opening the complete manual farmer verification form...",
+      });
+    }
+
+    return apiRequest("/users/verify/submit", {
       method: "POST",
       body: JSON.stringify(data),
-    }),
+    });
+  },
 
   getPendingVerifications: (status = "pending") =>
     apiRequest(`/users/verify/pending?status=${encodeURIComponent(status)}`),

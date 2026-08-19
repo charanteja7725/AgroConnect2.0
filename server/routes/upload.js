@@ -94,9 +94,6 @@ const uploadBuffer = (file, folder, resourceType = "image") => {
   });
 };
 
-// Product images are still sent through the backend because they are small
-// public assets. Farmer identity/farm evidence uses the signed direct-upload
-// flow below so large videos do not pass through Express/Render first.
 router.post(
   "/image",
   protect,
@@ -131,8 +128,6 @@ router.post(
   }
 );
 
-// Step 1 of private verification upload.
-// The browser receives a short-lived signature but NEVER receives the API secret.
 router.post(
   "/verification/signature",
   protect,
@@ -151,7 +146,10 @@ router.post(
       const timestamp = Math.floor(Date.now() / 1000);
       const folder = `agroconnect/verification/${req.user._id}/${field}`;
       const type = "authenticated";
-      const paramsToSign = { folder, timestamp, type };
+
+      // For REST uploads Cloudinary puts the delivery type in the endpoint URL.
+      // Therefore type is not part of the signed form parameters.
+      const paramsToSign = { folder, timestamp };
       const signature = cloudinary.utils.api_sign_request(
         paramsToSign,
         process.env.CLOUDINARY_API_SECRET
@@ -175,8 +173,6 @@ router.post(
   }
 );
 
-// Step 2: after Cloudinary receives the file directly from the browser,
-// verify the asset server-side before saving its metadata to the farmer account.
 router.post(
   "/verification/complete",
   protect,

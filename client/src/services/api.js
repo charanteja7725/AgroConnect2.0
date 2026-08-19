@@ -168,18 +168,16 @@ const uploadVerificationFile = async (field, file) => {
   formData.append("timestamp", String(signatureData.timestamp));
   formData.append("signature", signatureData.signature);
   formData.append("folder", signatureData.folder);
-  formData.append("type", signatureData.type || "authenticated");
 
+  const deliveryType = signatureData.type || "authenticated";
   const controller = new AbortController();
-  const directTimeoutMs = file.type?.startsWith("video/") ? 600000 : 180000;
+  const directTimeoutMs = file.type?.startsWith("video/") ? 300000 : 120000;
   const timeoutId = setTimeout(() => controller.abort(), directTimeoutMs);
 
   let cloudinaryResult;
   try {
     const cloudinaryResponse = await fetch(
-      `https://api.cloudinary.com/v1_1/${encodeURIComponent(
-        signatureData.cloudName
-      )}/${encodeURIComponent(signatureData.resourceType)}/upload`,
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(signatureData.cloudName)}/${encodeURIComponent(signatureData.resourceType)}/${encodeURIComponent(deliveryType)}`,
       {
         method: "POST",
         body: formData,
@@ -190,15 +188,11 @@ const uploadVerificationFile = async (field, file) => {
     cloudinaryResult = await cloudinaryResponse.json();
 
     if (!cloudinaryResponse.ok) {
-      throw new Error(
-        cloudinaryResult?.error?.message || "Cloudinary verification upload failed"
-      );
+      throw new Error(cloudinaryResult?.error?.message || "Cloudinary verification upload failed");
     }
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error(
-        "Verification media upload timed out. Please use a shorter/smaller file and try again."
-      );
+      throw new Error("Verification media upload timed out. Please use a shorter/smaller file and try again.");
     }
     throw error;
   } finally {
@@ -207,28 +201,16 @@ const uploadVerificationFile = async (field, file) => {
 
   return apiRequest("/upload/verification/complete", {
     method: "POST",
-    body: JSON.stringify({
-      field,
-      publicId: cloudinaryResult.public_id,
-    }),
+    body: JSON.stringify({ field, publicId: cloudinaryResult.public_id }),
     timeoutMs: 30000,
   });
 };
 
 export const uploadAPI = {
-  uploadImage: (formData) =>
-    apiRequest("/upload/image", {
-      method: "POST",
-      body: formData,
-      timeoutMs: 120000,
-    }),
-
+  uploadImage: (formData) => apiRequest("/upload/image", { method: "POST", body: formData, timeoutMs: 120000 }),
   uploadAadhaarFront: (file) => uploadVerificationFile("aadhaarFront", file),
-
   uploadAadhaarBack: (file) => uploadVerificationFile("aadhaarBack", file),
-
   uploadFarmPhoto: (file) => uploadVerificationFile("farmPhoto", file),
-
   uploadFarmingVideo: (file) => uploadVerificationFile("farmingVideo", file),
 };
 

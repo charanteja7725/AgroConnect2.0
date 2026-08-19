@@ -51,7 +51,6 @@ const uploadBuffer = async (
   deliveryType = "upload"
 ) => {
   ensureCloudinaryConfigured();
-
   const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
   return cloudinary.uploader.upload(dataUri, {
@@ -60,14 +59,6 @@ const uploadBuffer = async (
     type: deliveryType,
   });
 };
-
-const verificationResponse = (uploadResult, resourceType) => ({
-  success: true,
-  url: uploadResult.secure_url || "",
-  publicId: uploadResult.public_id,
-  resourceType,
-  deliveryType: "authenticated",
-});
 
 const persistVerificationMedia = async (userId, field, uploadResult, resourceType) => {
   const media = {
@@ -78,25 +69,22 @@ const persistVerificationMedia = async (userId, field, uploadResult, resourceTyp
     uploadedAt: new Date(),
   };
 
-  const user = await User.findById(userId);
-  if (!user) {
-    throw new Error("Farmer account not found");
-  }
-
-  if (user.verificationStatus === "verified") {
+  const currentUser = await User.findById(userId).select("verificationStatus");
+  if (!currentUser) throw new Error("Farmer account not found");
+  if (currentUser.verificationStatus === "verified") {
     throw new Error("Verified farmer evidence cannot be replaced without admin review");
   }
-
-  if (user.verificationStatus === "suspended") {
+  if (currentUser.verificationStatus === "suspended") {
     throw new Error("Suspended farmer accounts cannot upload verification evidence");
   }
 
-  if (!user.verificationDocuments) {
-    user.verificationDocuments = {};
-  }
+  // Atomic path update is important because the frontend uploads the four
+  // evidence files in parallel. A full-document save here could overwrite a
+  // different evidence field written by another concurrent upload request.
+  await User.findByIdAndUpdate(userId, {
+    $set: { [`verificationDocuments.${field}`]: media },
+  });
 
-  user.verificationDocuments[field] = media;
-  await user.save();
   return media;
 };
 
@@ -200,10 +188,7 @@ createVerificationUploadRoute({
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({
-      error:
-        err.code === "LIMIT_FILE_SIZE"
-          ? "Uploaded file is too large"
-          : err.message,
+      error: err.code === "LIMIT_FILE_SIZE" ? "Uploaded file is too large" : err.message,
     });
   }
 

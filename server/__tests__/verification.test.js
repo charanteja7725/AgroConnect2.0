@@ -53,8 +53,8 @@ const login = async (email, password = "test12345") => {
   return response.body.token;
 };
 
-const persistEvidence = async (userId, location = farmLocation) => {
-  return User.findByIdAndUpdate(
+const persistEvidence = async (userId, location = farmLocation) =>
+  User.findByIdAndUpdate(
     userId,
     {
       $set: {
@@ -67,7 +67,22 @@ const persistEvidence = async (userId, location = farmLocation) => {
     },
     { new: true }
   );
-};
+
+const createActiveFarmerProduct = async () =>
+  Product.create({
+    name: "Tomatoes",
+    description: "Fresh red tomatoes",
+    type: "produce",
+    category: "vegetables",
+    price: 50,
+    quantity: 25,
+    unit: "kg",
+    seller: farmer._id,
+    sellerName: "Test Farmer",
+    location: { type: "Point", coordinates: [78.4867, 17.385] },
+    isActive: true,
+    inStock: true,
+  });
 
 beforeAll(async () => {
   jest.setTimeout(60000);
@@ -187,6 +202,24 @@ describe("Farmer verification and security", () => {
     expect(res.body.error).toMatch(/aadhaar front/i);
   });
 
+  test("rejects placeholder zero-zero GPS even when all media exists", async () => {
+    await persistEvidence(farmer._id, {
+      ...farmLocation,
+      latitude: 0,
+      longitude: 0,
+    });
+
+    const res = await request(app)
+      .post("/api/users/verify/submit")
+      .set("Authorization", `Bearer ${farmerToken}`)
+      .send({
+        farmLocation: { ...farmLocation, latitude: 0, longitude: 0 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/gps|non-zero/i);
+  });
+
   test("submits complete persisted evidence for manual review", async () => {
     await persistEvidence(farmer._id);
 
@@ -258,6 +291,46 @@ describe("Farmer verification and security", () => {
     expect(saved.farmerVerification.verifiedBy.toString()).toBe(employee._id.toString());
   });
 
+  test("rejected farmer immediately loses public active product listings", async () => {
+    await persistEvidence(farmer._id);
+    await User.findByIdAndUpdate(farmer._id, {
+      verificationStatus: "pending",
+      isVerified: false,
+    });
+    const product = await createActiveFarmerProduct();
+
+    const review = await request(app)
+      .put(`/api/users/verify/${farmer._id}`)
+      .set("Authorization", `Bearer ${employeeToken}`)
+      .send({ action: "rejected", rejectionReason: "Farm evidence did not match." });
+
+    expect(review.status).toBe(200);
+    const savedProduct = await Product.findById(product._id);
+    expect(savedProduct.isActive).toBe(false);
+  });
+
+  test("admin suspension hides seller listings and invalidates an already issued farmer JWT", async () => {
+    await persistEvidence(farmer._id);
+    await User.findByIdAndUpdate(farmer._id, {
+      verificationStatus: "verified",
+      isVerified: true,
+    });
+    const product = await createActiveFarmerProduct();
+
+    const suspend = await request(app)
+      .put(`/api/users/${farmer._id}/suspend`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ action: "suspend" });
+
+    expect(suspend.status).toBe(200);
+    expect((await Product.findById(product._id)).isActive).toBe(false);
+
+    const me = await request(app)
+      .get("/api/auth/me")
+      .set("Authorization", `Bearer ${farmerToken}`);
+    expect(me.status).toBe(403);
+  });
+
   test("suspended user is blocked even when holding an unexpired JWT", async () => {
     await User.findByIdAndUpdate(buyer._id, { isActive: false });
 
@@ -289,21 +362,7 @@ describe("Farmer verification and security", () => {
       verificationStatus: "verified",
       isVerified: true,
     });
-
-    await Product.create({
-      name: "Tomatoes",
-      description: "Fresh red tomatoes",
-      type: "produce",
-      category: "vegetables",
-      price: 50,
-      quantity: 25,
-      unit: "kg",
-      seller: farmer._id,
-      sellerName: "Test Farmer",
-      location: { type: "Point", coordinates: [78.4867, 17.385] },
-      isActive: true,
-      inStock: true,
-    });
+    await createActiveFarmerProduct();
 
     const res = await request(app).get("/api/products");
 

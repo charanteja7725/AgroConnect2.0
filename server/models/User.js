@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Please provide a password"],
       minlength: 6,
-      select: false, // Don't return password by default
+      select: false,
     },
     phone: {
       type: String,
@@ -63,16 +63,16 @@ const userSchema = new mongoose.Schema(
         default: "Point",
       },
       coordinates: {
-        type: [Number], // [longitude, latitude]
+        type: [Number],
         default: [0, 0],
       },
     },
 
-    // Business Information (for farmers and sellers)
+    // Business Information
     businessName: String,
     businessRegistration: String,
-    farmSize: String, // For farmers
-    farmType: String, // For farmers
+    farmSize: String,
+    farmType: String,
     experienceYears: Number,
     certifications: [String],
 
@@ -127,16 +127,34 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // Government farmer registry check (AgriStack verification provider)
     farmerVerification: {
       status: {
         type: String,
         enum: ["not_submitted", "pending", "more_information_required", "verified", "rejected", "suspended"],
         default: "not_submitted",
       },
+      idType: {
+        type: String,
+        enum: ["centralid", "enrollmentnumber"],
+      },
+      farmerId: String,
+      farmerName: String,
+      farmerNumber: String,
+      centralId: String,
+      approvalStatus: String,
+      registrationStatus: String,
+      apiVerified: {
+        type: Boolean,
+        default: false,
+      },
+      provider: String,
+      source: String,
+      apiCheckedAt: Date,
       identityDocumentUrl: String,
       farmingProofUrl: String,
       farmPhotoUrl: String,
-      farmerId: String,
       farmLocation: {
         latitude: Number,
         longitude: Number,
@@ -149,6 +167,7 @@ const userSchema = new mongoose.Schema(
       },
       reviewNotes: String,
     },
+
     sellerVerification: {
       status: {
         type: String,
@@ -172,6 +191,7 @@ const userSchema = new mongoose.Schema(
       },
       reviewNotes: String,
     },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -180,7 +200,7 @@ const userSchema = new mongoose.Schema(
     resetPasswordToken: String,
     resetPasswordExpire: Date,
 
-    // Farmer Verification System
+    // Farmer verification workflow
     verificationStatus: {
       type: String,
       enum: [
@@ -231,7 +251,6 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ location: "2dsphere" });
 
-// Hash password before saving
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
@@ -244,12 +263,10 @@ userSchema.pre("save", async function (next) {
   }
 });
 
-// Compare password method
 userSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Method to get user profile (without sensitive data)
 userSchema.methods.getProfile = function () {
   const userObj = this.toObject();
   delete userObj.password;

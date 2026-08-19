@@ -23,6 +23,20 @@ const recalculateCart = (cart) => {
   cart.lastUpdated = new Date();
 };
 
+const validateShopperProduct = (user, product) => {
+  if (!product) return "Product not found";
+  if (!product.isActive || !product.inStock || Number(product.quantity) <= 0) {
+    return "Product is not currently available";
+  }
+  if (product.seller?.toString() === user._id.toString()) {
+    return "You cannot add your own product to your cart";
+  }
+  if (user.role === "farmer" && product.type !== "fertilizer") {
+    return "Farmer accounts can purchase fertilizer-store products only";
+  }
+  return "";
+};
+
 router.get("/", ...shopperOnly, async (req, res) => {
   try {
     let cart = await populateCart(Cart.findOne({ user: req.user._id }));
@@ -44,19 +58,16 @@ router.post("/add", ...shopperOnly, async (req, res) => {
     const quantity = Number(req.body.quantity);
 
     if (!productId || !Number.isInteger(quantity) || quantity < 1) {
-      return res.status(400).json({ error: "Product ID and a positive whole-number quantity are required" });
+      return res.status(400).json({
+        error: "Product ID and a positive whole-number quantity are required",
+      });
     }
 
     const product = await Product.findById(productId);
-    if (!product) return res.status(404).json({ error: "Product not found" });
-
-    if (!product.isActive || !product.inStock || Number(product.quantity) <= 0) {
-      return res.status(400).json({ error: "Product is not currently available" });
-    }
-
-    // A farmer may shop for fertilizer, but cannot add their own listing.
-    if (product.seller?.toString() === req.user._id.toString()) {
-      return res.status(400).json({ error: "You cannot add your own product to your cart" });
+    const productError = validateShopperProduct(req.user, product);
+    if (productError) {
+      const status = product ? (req.user.role === "farmer" && product.type !== "fertilizer" ? 403 : 400) : 404;
+      return res.status(status).json({ error: productError });
     }
 
     let cart = await Cart.findOne({ user: req.user._id });
@@ -116,8 +127,10 @@ router.put("/update/:itemId", ...shopperOnly, async (req, res) => {
     if (!item) return res.status(404).json({ error: "Item not found in cart" });
 
     const product = await Product.findById(item.product);
-    if (!product || !product.isActive || !product.inStock) {
-      return res.status(400).json({ error: "Product is no longer available" });
+    const productError = validateShopperProduct(req.user, product);
+    if (productError) {
+      const status = product ? (req.user.role === "farmer" && product.type !== "fertilizer" ? 403 : 400) : 404;
+      return res.status(status).json({ error: productError });
     }
 
     if (quantity > Number(product.quantity)) {

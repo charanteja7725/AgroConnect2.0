@@ -9,6 +9,7 @@ import RoleSelection from "./pages/auth/RoleSelection";
 import FarmerDashboard from "./pages/farmer/FarmerDashboard";
 import AddProduct from "./pages/farmer/AddProduct";
 import EditProduct from "./pages/farmer/EditProduct";
+import FarmerPurchases from "./pages/farmer/FarmerPurchases";
 import BuyerDashboard from "./pages/buyer/BuyerDashboard";
 import FertilizerStore from "./pages/buyer/FertilizerStore";
 import Cart from "./pages/buyer/Cart";
@@ -86,6 +87,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["farmer"]}>
               <EditProduct />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/farmer/purchases"
+          element={
+            <ProtectedRoute allowedRoles={["farmer"]}>
+              <FarmerPurchases />
             </ProtectedRoute>
           }
         />

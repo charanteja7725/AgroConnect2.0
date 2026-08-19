@@ -5,7 +5,6 @@ const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-// Only these seller fields may leave a public product endpoint.
 const PUBLIC_SELLER_FIELDS =
   "_id firstName lastName role avatar bio businessName farmSize farmType experienceYears certifications rating totalReviews isVerified";
 
@@ -50,6 +49,20 @@ const buildProductQuery = (req) => {
   return query;
 };
 
+const validCoordinates = (coordinates) => {
+  if (!Array.isArray(coordinates) || coordinates.length !== 2) return false;
+  const lng = Number(coordinates[0]);
+  const lat = Number(coordinates[1]);
+
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
+  if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return false;
+
+  // AgroConnect uses [0, 0] as the explicit "no GPS captured" placeholder.
+  if (lng === 0 && lat === 0) return false;
+
+  return true;
+};
+
 router.get("/", async (req, res) => {
   try {
     const { latitude, longitude, maxDistance, sortBy, page = 1, limit = 20 } = req.query;
@@ -61,7 +74,7 @@ router.get("/", async (req, res) => {
     if (latitude !== undefined || longitude !== undefined) {
       const lat = Number(latitude);
       const lng = Number(longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
         return res.status(400).json({ success: false, error: "Invalid latitude or longitude" });
       }
 
@@ -89,9 +102,6 @@ router.get("/", async (req, res) => {
           },
         },
         { $unwind: { path: "$seller", preserveNullAndEmptyArrays: true } },
-        // Replace the raw user document from $lookup with an explicit public
-        // shape so bank data, contact details and verification evidence never
-        // leave this public endpoint.
         { $set: { seller: publicSellerShape } },
       ]);
 
@@ -136,11 +146,9 @@ router.get("/", async (req, res) => {
 
 router.get("/seller/:sellerId", async (req, res) => {
   try {
-    const products = await Product.find({
-      seller: req.params.sellerId,
-      isActive: true,
-    }).sort({ createdAt: -1 });
-
+    const products = await Product.find({ seller: req.params.sellerId, isActive: true }).sort({
+      createdAt: -1,
+    });
     return res.status(200).json({ success: true, count: products.length, products });
   } catch (err) {
     return res.status(500).json({ success: false, error: "Error fetching products: " + err.message });
@@ -155,10 +163,7 @@ router.get("/:id", async (req, res) => {
       { new: true }
     ).populate("seller", PUBLIC_SELLER_FIELDS);
 
-    if (!product) {
-      return res.status(404).json({ success: false, error: "Product not found" });
-    }
-
+    if (!product) return res.status(404).json({ success: false, error: "Product not found" });
     return res.status(200).json({ success: true, product });
   } catch (err) {
     return res.status(500).json({ success: false, error: "Error fetching product: " + err.message });
@@ -191,43 +196,59 @@ router.post(
 
       const numericPrice = Number(price);
       const numericQuantity = Number(quantity);
-      if (!Number.isFinite(numericPrice) || numericPrice < 0 || !Number.isFinite(numericQuantity) || numericQuantity < 0) {
-        return res.status(400).json({ success: false, error: "Price and quantity must be valid non-negative numbers" });
+      if (
+        !Number.isFinite(numericPrice) ||
+        numericPrice <= 0 ||
+        !Number.isFinite(numericQuantity) ||
+        numericQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "Price and quantity must be valid numbers greater than zero",
+        });
       }
 
       const seller = await User.findById(req.user._id);
-      if (!seller) {
-        return res.status(404).json({ success: false, error: "Seller account not found" });
+      if (!seller) return res.status(404).json({ success: false, error: "Seller account not found" });
+
+      if (req.user.role === "farmer") {
+        if (seller.verificationStatus !== "verified") {
+          return res.status(403).json({
+            success: false,
+            error: "Your farmer account must be verified and approved before you can create products.",
+          });
+        }
+        if (type !== "produce") {
+          return res.status(403).json({
+            success: false,
+            error: "Farmer accounts can create produce listings only.",
+          });
+        }
       }
 
-      if (req.user.role === "farmer" && seller.verificationStatus !== "verified") {
+      if (req.user.role === "fertilizer_seller" && type !== "fertilizer") {
         return res.status(403).json({
           success: false,
-          error: "Your farmer account must be verified and approved before you can create products.",
+          error: "Fertilizer seller accounts can create fertilizer listings only.",
         });
       }
 
       let geoCoords = [0, 0];
       let locationProvided = false;
-      if (
-        location &&
-        Array.isArray(location.coordinates) &&
-        location.coordinates.length === 2 &&
-        location.coordinates.every((coordinate) => Number.isFinite(Number(coordinate)))
-      ) {
+      if (validCoordinates(location?.coordinates)) {
         geoCoords = [Number(location.coordinates[0]), Number(location.coordinates[1])];
         locationProvided = true;
       }
 
       const product = new Product({
-        name,
-        description,
+        name: String(name).trim(),
+        description: String(description).trim(),
         type,
         category,
         price: numericPrice,
         quantity: numericQuantity,
         unit: unit || "kg",
-        images: images || [],
+        images: Array.isArray(images) ? images : [],
         address: location?.address || address || "",
         location: {
           type: "Point",
@@ -238,8 +259,8 @@ router.post(
         sellerName: [req.user.firstName, req.user.lastName].filter(Boolean).join(" "),
         mainImage: images?.[0]?.url || null,
         isActive: locationProvided,
-        inStock: numericQuantity > 0,
-        ...(composition ? { composition } : {}),
+        inStock: true,
+        ...(req.user.role === "fertilizer_seller" && composition ? { composition } : {}),
       });
 
       await product.save();
@@ -250,7 +271,7 @@ router.post(
         product,
         message: locationProvided
           ? "Product created successfully"
-          : "Product saved as draft. Add your GPS location to publish it.",
+          : "Product saved as draft. Add a valid GPS location to publish it.",
         isPublished: product.isActive,
       });
     } catch (err) {
@@ -292,6 +313,20 @@ router.put("/:id", protect, async (req, res) => {
         return res.status(403).json({
           success: false,
           error: "Your farmer account must be verified and approved before publishing products.",
+        });
+      }
+    }
+
+    if (updates.location?.coordinates) {
+      if (validCoordinates(updates.location.coordinates)) {
+        updates.location.coordinates = [
+          Number(updates.location.coordinates[0]),
+          Number(updates.location.coordinates[1]),
+        ];
+      } else if (updates.isActive === true) {
+        return res.status(400).json({
+          success: false,
+          error: "A valid GPS location is required to publish a product.",
         });
       }
     }

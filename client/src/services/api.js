@@ -135,12 +135,6 @@ export const userAPI = {
   getUsersByRole: (role) =>
     apiRequest(`/users/role/${encodeURIComponent(role)}`),
 
-  checkFarmerRegistry: (idType, farmerId) =>
-    apiRequest("/users/verify/check-registry", {
-      method: "POST",
-      body: JSON.stringify({ idType, farmerId }),
-    }),
-
   submitVerification: (data) =>
     apiRequest("/users/verify/submit", {
       method: "POST",
@@ -313,6 +307,16 @@ export const pricingAPI = {
   getMarketAnalysis: () => apiRequest("/pricing/market-analysis"),
 };
 
+const uploadVerificationFile = (endpoint, file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return apiRequest(endpoint, {
+    method: "POST",
+    body: formData,
+  });
+};
+
 export const uploadAPI = {
   uploadImage: (formData) =>
     apiRequest("/upload/image", {
@@ -320,23 +324,17 @@ export const uploadAPI = {
       body: formData,
     }),
 
-  uploadFarmerId: (file) => {
-    const formData = new FormData();
-    formData.append("image", file);
-    return apiRequest("/upload/verification/farmer-id", {
-      method: "POST",
-      body: formData,
-    });
-  },
+  uploadAadhaarFront: (file) =>
+    uploadVerificationFile("/upload/verification/aadhaar-front", file),
 
-  uploadFarmPhoto: (file) => {
-    const formData = new FormData();
-    formData.append("image", file);
-    return apiRequest("/upload/verification/farm-photo", {
-      method: "POST",
-      body: formData,
-    });
-  },
+  uploadAadhaarBack: (file) =>
+    uploadVerificationFile("/upload/verification/aadhaar-back", file),
+
+  uploadFarmPhoto: (file) =>
+    uploadVerificationFile("/upload/verification/farm-photo", file),
+
+  uploadFarmingVideo: (file) =>
+    uploadVerificationFile("/upload/verification/farming-video", file),
 };
 
 export const notificationAPI = {

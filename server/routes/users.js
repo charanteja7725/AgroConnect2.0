@@ -1,6 +1,7 @@
 const express = require("express");
 const cloudinary = require("cloudinary").v2;
 const User = require("../models/User");
+const Product = require("../models/Product");
 const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
@@ -18,6 +19,15 @@ const VERIFICATION_MEDIA_KEYS = [
   "farmingVideo",
 ];
 
+const VERIFICATION_STATUSES = [
+  "not_submitted",
+  "pending",
+  "more_information_required",
+  "verified",
+  "rejected",
+  "suspended",
+];
+
 const toPlainObject = (value) => value?.toObject?.() || value || {};
 const hasMedia = (media) => Boolean(media?.publicId || media?.url);
 const normalizeArea = (value) => String(value || "").trim().toLowerCase();
@@ -32,7 +42,8 @@ const isValidFarmLocation = (location) => {
     latitude >= -90 &&
     latitude <= 90 &&
     longitude >= -180 &&
-    longitude <= 180
+    longitude <= 180 &&
+    !(latitude === 0 && longitude === 0)
   );
 };
 
@@ -63,7 +74,6 @@ const employeeCanReviewFarmer = (employee, farmer) => {
     return false;
   }
 
-  // Empty districts means the employee covers the entire assigned state.
   return assignedDistricts.length === 0 || assignedDistricts.includes(farmerDistrict);
 };
 
@@ -103,20 +113,34 @@ const profileWithVerificationPreviews = (user) => {
   return profile;
 };
 
-// Farmer submits location/notes after the required evidence has already been
-// uploaded and persisted by the protected Cloudinary upload endpoints.
+const deactivateSellerProducts = async (sellerId) => {
+  await Product.updateMany(
+    { seller: sellerId, isActive: true },
+    { $set: { isActive: false } }
+  );
+};
+
+const hasCompleteVerificationEvidence = (farmer) => {
+  const documents = farmer.verificationDocuments;
+  return (
+    hasMedia(documents?.aadhaarFront) &&
+    hasMedia(documents?.aadhaarBack) &&
+    hasMedia(documents?.farmPhoto) &&
+    hasMedia(documents?.farmingVideo) &&
+    isValidFarmLocation(documents?.farmLocation) &&
+    isCompleteFarmAddress(documents?.farmLocation)
+  );
+};
+
+// Farmer submits evidence/location for manual local review.
 router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-
-    if (!user) {
-      return res.status(404).json({ error: "Farmer account not found" });
-    }
+    if (!user) return res.status(404).json({ error: "Farmer account not found" });
 
     if (user.verificationStatus === "verified") {
       return res.status(400).json({ error: "Your account is already verified." });
     }
-
     if (user.verificationStatus === "suspended") {
       return res.status(403).json({ error: "Your account has been suspended." });
     }
@@ -124,9 +148,6 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
     const { farmLocation, additionalNotes } = req.body;
     const existingDocuments = toPlainObject(user.verificationDocuments);
 
-    // Never trust media metadata sent by the browser. Verification evidence
-    // must exist in MongoDB because the server persisted it after Cloudinary
-    // accepted the authenticated upload.
     if (!hasMedia(existingDocuments.aadhaarFront)) {
       return res.status(400).json({ error: "Aadhaar front photo is required." });
     }
@@ -143,10 +164,9 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
     const nextLocation = farmLocation || existingDocuments.farmLocation;
     if (!isValidFarmLocation(nextLocation)) {
       return res.status(400).json({
-        error: "Valid farm GPS latitude and longitude are required.",
+        error: "Valid non-zero farm GPS latitude and longitude are required.",
       });
     }
-
     if (!isCompleteFarmAddress(nextLocation)) {
       return res.status(400).json({
         error: "Farm address, district and state are required for manual verification.",
@@ -172,17 +192,26 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
     user.verificationStatus = "pending";
     user.isVerified = false;
     user.farmerVerification = {
-      ...(toPlainObject(user.farmerVerification)),
+      ...toPlainObject(user.farmerVerification),
       status: "pending",
       submittedAt: new Date(),
       reviewNotes: "",
     };
-
+    user.adminReview = {
+      reviewedBy: undefined,
+      reviewedAt: undefined,
+      notes: "",
+      rejectionReason: "",
+      moreInfoRequest: "",
+    };
     user.location = {
       type: "Point",
       coordinates: [normalizedLocation.longitude, normalizedLocation.latitude],
     };
 
+    // If this is a resubmission after a previous approval/rejection cycle,
+    // products stay hidden until a reviewer approves the farmer again.
+    await deactivateSellerProducts(user._id);
     await user.save();
 
     return res.json({
@@ -192,30 +221,21 @@ router.post("/verify/submit", protect, authorize("farmer"), async (req, res) => 
       verificationStatus: user.verificationStatus,
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "Error submitting verification: " + err.message,
-    });
+    return res.status(500).json({ error: "Error submitting verification: " + err.message });
   }
 });
 
-// Admins see all matching farmers. Verification employees only see farmers in
-// their assigned state/district area.
+// Admin sees all farmers; verification employees see only assigned state/district.
 router.get(
   "/verify/pending",
   protect,
   authorize("admin", "verification_employee"),
   async (req, res) => {
     try {
-      const { status = "pending" } = req.query;
-      const validStatuses = [
-        "not_submitted",
-        "pending",
-        "more_information_required",
-        "verified",
-        "rejected",
-        "suspended",
-      ];
-      const filterStatus = validStatuses.includes(status) ? status : "pending";
+      const requestedStatus = String(req.query.status || "pending");
+      const filterStatus = VERIFICATION_STATUSES.includes(requestedStatus)
+        ? requestedStatus
+        : "pending";
 
       let farmers = await User.find({
         role: "farmer",
@@ -254,10 +274,7 @@ router.put(
     try {
       const { action, notes, rejectionReason, moreInfoRequest } = req.body;
       const validActions = ["verified", "rejected", "more_information_required"];
-
-      if (req.user.role === "admin") {
-        validActions.push("suspended");
-      }
+      if (req.user.role === "admin") validActions.push("suspended");
 
       if (!validActions.includes(action)) {
         return res.status(400).json({ error: "Invalid verification action." });
@@ -275,39 +292,27 @@ router.put(
         });
       }
 
-      if (action === "verified") {
-        const documents = farmer.verificationDocuments;
-        if (!hasMedia(documents?.aadhaarFront)) {
-          return res.status(400).json({ error: "Cannot approve: Aadhaar front photo is missing." });
-        }
-        if (!hasMedia(documents?.aadhaarBack)) {
-          return res.status(400).json({ error: "Cannot approve: Aadhaar back photo is missing." });
-        }
-        if (!hasMedia(documents?.farmPhoto)) {
-          return res.status(400).json({ error: "Cannot approve: Farm photo is missing." });
-        }
-        if (!hasMedia(documents?.farmingVideo)) {
-          return res.status(400).json({ error: "Cannot approve: Farming verification video is missing." });
-        }
-        if (!isValidFarmLocation(documents?.farmLocation) || !isCompleteFarmAddress(documents?.farmLocation)) {
-          return res.status(400).json({ error: "Cannot approve: Complete farm location is missing." });
-        }
+      if (action === "verified" && !hasCompleteVerificationEvidence(farmer)) {
+        return res.status(400).json({
+          error:
+            "Cannot approve: Aadhaar front/back, farm photo, farming video, valid GPS, farm address, district and state are all required.",
+        });
       }
 
       farmer.verificationStatus = action;
       farmer.adminReview = {
         reviewedBy: req.user._id,
         reviewedAt: new Date(),
-        notes: notes || "",
-        rejectionReason: rejectionReason || "",
-        moreInfoRequest: moreInfoRequest || "",
+        notes: String(notes || "").trim(),
+        rejectionReason: String(rejectionReason || "").trim(),
+        moreInfoRequest: String(moreInfoRequest || "").trim(),
       };
       farmer.farmerVerification = {
-        ...(toPlainObject(farmer.farmerVerification)),
+        ...toPlainObject(farmer.farmerVerification),
         status: action,
-        reviewNotes: notes || rejectionReason || moreInfoRequest || "",
-        verifiedAt: action === "verified" ? new Date() : farmer.farmerVerification?.verifiedAt,
-        verifiedBy: action === "verified" ? req.user._id : farmer.farmerVerification?.verifiedBy,
+        reviewNotes: String(notes || rejectionReason || moreInfoRequest || "").trim(),
+        verifiedAt: action === "verified" ? new Date() : undefined,
+        verifiedBy: action === "verified" ? req.user._id : undefined,
       };
 
       if (action === "verified") {
@@ -315,6 +320,7 @@ router.put(
         farmer.isActive = true;
       } else {
         farmer.isVerified = false;
+        await deactivateSellerProducts(farmer._id);
         if (action === "suspended") farmer.isActive = false;
       }
 
@@ -326,9 +332,7 @@ router.put(
         farmer: farmer.getProfile(),
       });
     } catch (err) {
-      return res.status(500).json({
-        error: "Error updating verification: " + err.message,
-      });
+      return res.status(500).json({ error: "Error updating verification: " + err.message });
     }
   }
 );
@@ -343,22 +347,43 @@ router.put("/:id/suspend", protect, authorize("admin"), async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    user.isActive = action === "activate";
-
-    if (action === "suspend" && user.role === "farmer") {
-      user.verificationStatus = "suspended";
-      user.isVerified = false;
-      user.farmerVerification = {
-        ...(toPlainObject(user.farmerVerification)),
-        status: "suspended",
-      };
+    if (action === "suspend") {
+      user.isActive = false;
+      if (user.role === "farmer") {
+        user.verificationStatus = "suspended";
+        user.isVerified = false;
+        user.farmerVerification = {
+          ...toPlainObject(user.farmerVerification),
+          status: "suspended",
+          verifiedAt: undefined,
+          verifiedBy: undefined,
+        };
+        await deactivateSellerProducts(user._id);
+      } else if (user.role === "fertilizer_seller") {
+        await deactivateSellerProducts(user._id);
+      }
+    } else {
+      user.isActive = true;
+      if (user.role === "farmer" && user.verificationStatus === "suspended") {
+        // Reactivating the account does not restore trust automatically.
+        user.verificationStatus = "more_information_required";
+        user.isVerified = false;
+        user.farmerVerification = {
+          ...toPlainObject(user.farmerVerification),
+          status: "more_information_required",
+          reviewNotes: "Account reactivated; farmer verification must be reviewed again.",
+        };
+      }
     }
 
     await user.save();
 
     return res.json({
       success: true,
-      message: `User ${action === "suspend" ? "suspended" : "activated"} successfully.`,
+      message:
+        action === "suspend"
+          ? "User suspended successfully. Active seller listings were hidden."
+          : "User activated successfully.",
       user: user.getProfile(),
     });
   } catch (err) {
@@ -375,7 +400,7 @@ router.get("/role/:role", protect, authorize("admin"), async (req, res) => {
     return res.json({
       success: true,
       count: users.length,
-      users: users.map((u) => u.getProfile()),
+      users: users.map((user) => user.getProfile()),
     });
   } catch (err) {
     return res.status(500).json({ error: "Error fetching users: " + err.message });
@@ -385,12 +410,18 @@ router.get("/role/:role", protect, authorize("admin"), async (req, res) => {
 router.get("/search/nearby", async (req, res) => {
   try {
     const { longitude, latitude, maxDistance = 5000, role = "farmer" } = req.query;
-
     const lng = Number(longitude);
     const lat = Number(latitude);
     const distance = Math.min(100000, Math.max(1, Number(maxDistance) || 5000));
 
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    if (
+      !Number.isFinite(lng) ||
+      !Number.isFinite(lat) ||
+      lng < -180 ||
+      lng > 180 ||
+      lat < -90 ||
+      lat > 90
+    ) {
       return res.status(400).json({ error: "Valid longitude and latitude are required" });
     }
 
@@ -413,7 +444,7 @@ router.get("/search/nearby", async (req, res) => {
     return res.json({
       success: true,
       count: users.length,
-      users: users.map((u) => u.getPublicProfile()),
+      users: users.map((user) => user.getPublicProfile()),
     });
   } catch (err) {
     return res.status(500).json({ error: "Error searching users: " + err.message });
@@ -425,7 +456,6 @@ router.get("/:id", protect, async (req, res) => {
     const user = await User.findById(req.params.id).select(
       "-password -resetPasswordToken -resetPasswordExpire"
     );
-
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const canViewPrivate =
@@ -457,7 +487,6 @@ router.put("/:id", protect, async (req, res) => {
       "bankAccount",
       "language",
     ];
-
     const updates = {};
     Object.keys(req.body).forEach((key) => {
       if (allowedFields.includes(key)) updates[key] = req.body[key];
@@ -467,7 +496,6 @@ router.put("/:id", protect, async (req, res) => {
       new: true,
       runValidators: true,
     });
-
     if (!user) return res.status(404).json({ error: "User not found" });
 
     return res.json({
@@ -482,12 +510,12 @@ router.put("/:id", protect, async (req, res) => {
 
 router.post("/:id/review", protect, async (req, res) => {
   try {
-    const { rating, comment } = req.body;
+    const rating = Number(req.body.rating);
+    const comment = String(req.body.comment || "").trim();
 
-    if (!rating || rating < 1 || rating > 5) {
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
       return res.status(400).json({ error: "Rating must be between 1 and 5" });
     }
-
     if (req.user._id.toString() === req.params.id) {
       return res.status(400).json({ error: "You cannot review your own account" });
     }
@@ -496,14 +524,21 @@ router.post("/:id/review", protect, async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const existingReview = user.reviews.find(
-      (r) => r.reviewer.toString() === req.user._id.toString()
+      (review) => review.reviewer.toString() === req.user._id.toString()
     );
     if (existingReview) {
       return res.status(400).json({ error: "You have already reviewed this user" });
     }
 
-    user.reviews.push({ reviewer: req.user._id, rating, comment, createdAt: new Date() });
-    user.rating = user.reviews.reduce((sum, r) => sum + r.rating, 0) / user.reviews.length;
+    user.reviews.push({
+      reviewer: req.user._id,
+      rating,
+      comment,
+      createdAt: new Date(),
+    });
+    user.rating =
+      user.reviews.reduce((sum, review) => sum + Number(review.rating), 0) /
+      user.reviews.length;
     user.totalReviews = user.reviews.length;
     await user.save();
 
@@ -523,7 +558,14 @@ router.delete("/:id", protect, async (req, res) => {
       return res.status(403).json({ error: "Not authorized to delete this user" });
     }
 
-    await User.findByIdAndDelete(req.params.id);
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (["farmer", "fertilizer_seller"].includes(user.role)) {
+      await deactivateSellerProducts(user._id);
+    }
+    await User.findByIdAndDelete(user._id);
+
     return res.json({ success: true, message: "User deleted successfully" });
   } catch (err) {
     return res.status(500).json({ error: "Error deleting user: " + err.message });

@@ -326,16 +326,68 @@ export const pricingAPI = {
   getMarketAnalysis: () => apiRequest("/pricing/market-analysis"),
 };
 
-const uploadVerificationFile = (endpoint, file) => {
+const uploadVerificationFile = async (field, file) => {
+  if (!file) throw new Error("Select a verification file before uploading.");
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    throw new Error("The selected verification file is empty. Please choose the file again.");
+  }
+
+  const signatureData = await apiRequest("/upload/verification/signature", {
+    method: "POST",
+    body: JSON.stringify({ field }),
+    timeoutMs: 20000,
+  });
+
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("api_key", signatureData.apiKey);
+  formData.append("timestamp", String(signatureData.timestamp));
+  formData.append("signature", signatureData.signature);
+  formData.append("folder", signatureData.folder);
+  formData.append("type", signatureData.type || "authenticated");
 
-  const timeoutMs = file?.type?.startsWith("video/") ? 300000 : 120000;
+  const controller = new AbortController();
+  const directTimeoutMs = file.type?.startsWith("video/") ? 600000 : 180000;
+  const timeoutId = setTimeout(() => controller.abort(), directTimeoutMs);
 
-  return apiRequest(endpoint, {
+  let cloudinaryResult;
+  try {
+    const cloudinaryResponse = await fetch(
+      `https://api.cloudinary.com/v1_1/${encodeURIComponent(
+        signatureData.cloudName
+      )}/${encodeURIComponent(signatureData.resourceType)}/upload`,
+      {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      }
+    );
+
+    cloudinaryResult = await cloudinaryResponse.json();
+
+    if (!cloudinaryResponse.ok) {
+      throw new Error(
+        cloudinaryResult?.error?.message || "Cloudinary verification upload failed"
+      );
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(
+        "Verification media upload timed out. Please use a shorter/smaller file and try again."
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  return apiRequest("/upload/verification/complete", {
     method: "POST",
-    body: formData,
-    timeoutMs,
+    body: JSON.stringify({
+      field,
+      publicId: cloudinaryResult.public_id,
+    }),
+    timeoutMs: 30000,
   });
 };
 
@@ -347,17 +399,13 @@ export const uploadAPI = {
       timeoutMs: 120000,
     }),
 
-  uploadAadhaarFront: (file) =>
-    uploadVerificationFile("/upload/verification/aadhaar-front", file),
+  uploadAadhaarFront: (file) => uploadVerificationFile("aadhaarFront", file),
 
-  uploadAadhaarBack: (file) =>
-    uploadVerificationFile("/upload/verification/aadhaar-back", file),
+  uploadAadhaarBack: (file) => uploadVerificationFile("aadhaarBack", file),
 
-  uploadFarmPhoto: (file) =>
-    uploadVerificationFile("/upload/verification/farm-photo", file),
+  uploadFarmPhoto: (file) => uploadVerificationFile("farmPhoto", file),
 
-  uploadFarmingVideo: (file) =>
-    uploadVerificationFile("/upload/verification/farming-video", file),
+  uploadFarmingVideo: (file) => uploadVerificationFile("farmingVideo", file),
 };
 
 export const notificationAPI = {

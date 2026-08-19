@@ -31,6 +31,10 @@ const Cart = () => {
     coordinates: null,
   });
 
+  const homePath = user?.role === "farmer" ? "/farmer" : "/buyer";
+  const shoppingPath = user?.role === "farmer" ? "/fertilizer-store" : "/buyer";
+  const ordersPath = user?.role === "farmer" ? "/farmer/purchases" : "/buyer";
+
   useEffect(() => {
     if (!user) return;
     setDeliveryAddress((previous) => ({
@@ -157,9 +161,9 @@ const Cart = () => {
             razorpaySignature: response.razorpay_signature,
           });
 
-          setCheckoutSuccess("Payment completed successfully. Redirecting...");
+          setCheckoutSuccess("Payment completed successfully. Redirecting to your orders...");
           addNotification?.("Payment successful", "success");
-          setTimeout(() => navigate("/buyer"), 1200);
+          setTimeout(() => navigate(ordersPath), 1200);
         } catch (err) {
           setCheckoutError(err.message || "Payment confirmation failed");
           addNotification?.(err.message || "Payment confirmation failed", "error");
@@ -174,7 +178,11 @@ const Cart = () => {
       },
       theme: { color: "#009933" },
       modal: {
-        ondismiss: () => setCheckoutError("Payment was cancelled. You can try again."),
+        ondismiss: () => {
+          setCheckoutError(
+            "Payment was cancelled. The order remains pending; you can review or cancel it from your orders."
+          );
+        },
       },
     };
 
@@ -220,7 +228,7 @@ const Cart = () => {
       if (paymentMethod === "cash_on_delivery") {
         setCheckoutSuccess("Order placed successfully with cash on delivery.");
         addNotification?.("Order placed successfully", "success");
-        setTimeout(() => navigate("/buyer"), 1000);
+        setTimeout(() => navigate(ordersPath), 1000);
         return;
       }
 
@@ -233,7 +241,6 @@ const Cart = () => {
         throw new Error("Payment provider did not return a valid payment order");
       }
 
-      // Development/test mock orders are generated only by a non-production backend.
       if (paymentResponse.razorpayOrderId.startsWith("order_mock_")) {
         await paymentAPI.confirmPayment(paymentResponse.paymentId, order._id, {
           razorpayPaymentId: `pay_mock_${Math.random().toString(36).slice(2)}`,
@@ -242,13 +249,15 @@ const Cart = () => {
         });
         setCheckoutSuccess("Development payment completed. Redirecting...");
         addNotification?.("Development payment completed", "success");
-        setTimeout(() => navigate("/buyer"), 1000);
+        setTimeout(() => navigate(ordersPath), 1000);
         return;
       }
 
       const loaded = await loadRazorpayScript();
       if (!loaded || !window.Razorpay) {
-        throw new Error("Razorpay Checkout could not be loaded. Please refresh the page.");
+        throw new Error(
+          "Razorpay Checkout could not be loaded. The order is pending and can be cancelled from your orders."
+        );
       }
 
       await openRazorpayCheckout(paymentResponse, order);
@@ -268,7 +277,7 @@ const Cart = () => {
   return (
     <div className="cart-page">
       <div className="cart-topbar">
-        <div className="cart-brand" onClick={() => navigate("/buyer")}>
+        <div className="cart-brand" onClick={() => navigate(homePath)}>
           🌱 {t("appName")}
         </div>
       </div>
@@ -294,7 +303,9 @@ const Cart = () => {
                   </div>
                   <div>
                     <h4>{item.product?.name || item.productName || "Product"}</h4>
-                    <p className="farmer">{item.seller?.firstName || item.sellerName || "Seller"}</p>
+                    <p className="farmer">
+                      {item.seller?.businessName || item.seller?.firstName || item.sellerName || "Seller"}
+                    </p>
                     <p className="price">
                       ₹{item.price}/{item.product?.unit || "unit"}
                     </p>
@@ -317,7 +328,7 @@ const Cart = () => {
           ) : (
             <div className="empty-cart">
               <p>{t("cartEmpty")}</p>
-              <button onClick={() => navigate("/buyer")}>{t("continueShoppingBtn")}</button>
+              <button onClick={() => navigate(shoppingPath)}>{t("continueShoppingBtn")}</button>
             </div>
           )}
         </div>
@@ -378,8 +389,11 @@ const Cart = () => {
             >
               {loading ? t("processing") : t("checkoutBtn")}
             </button>
-            <button className="back-btn" onClick={() => navigate("/buyer")}>
+            <button className="back-btn" onClick={() => navigate(shoppingPath)}>
               {t("continueShoppingBtn")}
+            </button>
+            <button className="back-btn" onClick={() => navigate(ordersPath)}>
+              View My Orders
             </button>
           </div>
         </div>

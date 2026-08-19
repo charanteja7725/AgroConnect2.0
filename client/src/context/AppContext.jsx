@@ -1,12 +1,5 @@
-import React, {
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
-
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import { authAPI } from "../services/api.js";
-
 import {
   AuthContext,
   CartContext,
@@ -14,174 +7,142 @@ import {
   NotificationContext,
 } from "./ContextDefinitions.js";
 
-// ======================================================
-// CUSTOM HOOKS
-// ======================================================
-
 export const useAuth = () => {
   const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error("useAuth must be used inside AuthProvider");
-  }
-
+  if (!context) throw new Error("useAuth must be used inside AuthProvider");
   return context;
 };
 
 export const useCart = () => {
   const context = useContext(CartContext);
-
-  if (!context) {
-    throw new Error("useCart must be used inside CartProvider");
-  }
-
+  if (!context) throw new Error("useCart must be used inside CartProvider");
   return context;
 };
 
 export const useLocation = () => {
   const context = useContext(LocationContext);
-
-  if (!context) {
-    throw new Error("useLocation must be used inside LocationProvider");
-  }
-
+  if (!context) throw new Error("useLocation must be used inside LocationProvider");
   return context;
 };
 
 export const useNotification = () => {
   const context = useContext(NotificationContext);
-
-  if (!context) {
-    throw new Error(
-      "useNotification must be used inside NotificationProvider"
-    );
-  }
-
+  if (!context) throw new Error("useNotification must be used inside NotificationProvider");
   return context;
 };
 
-// ======================================================
-// AUTH PROVIDER
-// ======================================================
+const readStoredUser = () => {
+  try {
+    const savedUser = localStorage.getItem("agroconnect_user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  } catch (error) {
+    console.error("Failed to parse saved user:", error);
+    localStorage.removeItem("agroconnect_user");
+    return null;
+  }
+};
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    try {
-      const savedUser = localStorage.getItem("agroconnect_user");
+  const [token, setToken] = useState(() => localStorage.getItem("token") || null);
+  const [user, setUser] = useState(readStoredUser);
+  // If a token exists, do not trust a cached role/status until /auth/me has
+  // synchronised it with MongoDB. This prevents stale verification/suspension
+  // state after an admin or area reviewer changes the account.
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem("token")));
+  const [authReady, setAuthReady] = useState(() => !localStorage.getItem("token"));
 
-      return savedUser ? JSON.parse(savedUser) : null;
-    } catch (error) {
-      console.error("Failed to parse saved user:", error);
-
+  const persistUser = useCallback((nextUser) => {
+    setUser(nextUser || null);
+    if (nextUser) {
+      localStorage.setItem("agroconnect_user", JSON.stringify(nextUser));
+    } else {
       localStorage.removeItem("agroconnect_user");
-
-      return null;
-    }
-  });
-
-  const [token, setToken] = useState(
-    () => localStorage.getItem("token") || null
-  );
-
-  const [loading, setLoading] = useState(false);
-
-  // ----------------------------------------------------
-  // Login
-  // ----------------------------------------------------
-
-  const login = useCallback((userData, authToken) => {
-    setUser(userData);
-    setToken(authToken);
-
-    if (authToken) {
-      localStorage.setItem("token", authToken);
-    }
-
-    if (userData) {
-      localStorage.setItem(
-        "agroconnect_user",
-        JSON.stringify(userData)
-      );
     }
   }, []);
 
-  // ----------------------------------------------------
-  // Logout
-  // ----------------------------------------------------
+  const login = useCallback(
+    (userData, authToken) => {
+      setToken(authToken || null);
+      persistUser(userData || null);
+
+      if (authToken) localStorage.setItem("token", authToken);
+      else localStorage.removeItem("token");
+
+      setAuthReady(true);
+    },
+    [persistUser]
+  );
 
   const logout = useCallback(() => {
     setUser(null);
     setToken(null);
-
+    setLoading(false);
+    setAuthReady(true);
     localStorage.removeItem("token");
     localStorage.removeItem("agroconnect_user");
   }, []);
 
-  // ----------------------------------------------------
-  // Update user
-  // ----------------------------------------------------
+  const updateUser = useCallback(
+    (updatedData) => {
+      setUser((previousUser) => {
+        const updatedUser = {
+          ...(previousUser || {}),
+          ...(updatedData || {}),
+        };
+        localStorage.setItem("agroconnect_user", JSON.stringify(updatedUser));
+        return updatedUser;
+      });
+    },
+    []
+  );
 
-  const updateUser = useCallback((updatedData) => {
-    setUser((previousUser) => {
-      const updatedUser = {
-        ...(previousUser || {}),
-        ...updatedData,
-      };
-
-      localStorage.setItem(
-        "agroconnect_user",
-        JSON.stringify(updatedUser)
-      );
-
-      return updatedUser;
-    });
-  }, []);
-
-  // ----------------------------------------------------
-  // Load current logged-in user
-  // ----------------------------------------------------
-
-  useEffect(() => {
-    const loadCurrentUser = async () => {
-      if (!token || user) {
-        return;
+  const refreshUser = useCallback(
+    async ({ silent = false } = {}) => {
+      const currentToken = localStorage.getItem("token");
+      if (!currentToken) {
+        logout();
+        return null;
       }
 
-      setLoading(true);
+      if (!silent) setLoading(true);
 
       try {
         const data = await authAPI.getMe();
+        const freshUser = data?.user || null;
 
-        if (data?.success && data?.user) {
-          setUser(data.user);
-
-          localStorage.setItem(
-            "agroconnect_user",
-            JSON.stringify(data.user)
-          );
-        } else if (data?.user) {
-          // Supports APIs that return { user: ... }
-          // without a success property
-          setUser(data.user);
-
-          localStorage.setItem(
-            "agroconnect_user",
-            JSON.stringify(data.user)
-          );
-        } else {
+        if (!freshUser) {
           logout();
+          return null;
         }
+
+        persistUser(freshUser);
+        return freshUser;
       } catch (error) {
-        console.error("Failed to load current user:", error);
-
+        console.error("Failed to refresh authenticated user:", error);
+        // A 401/403 here includes expired tokens and accounts that were
+        // suspended/deactivated after the token was issued.
         logout();
+        return null;
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
+        setAuthReady(true);
       }
-    };
+    },
+    [logout, persistUser]
+  );
 
-    loadCurrentUser();
-  }, [token, user, logout]);
+  useEffect(() => {
+    if (!token) {
+      setAuthReady(true);
+      setLoading(false);
+      return;
+    }
+
+    // Always validate the cached user against the backend once per app load
+    // or token change. Previously a cached farmer could remain "pending" even
+    // after an employee approved the account until localStorage was cleared.
+    refreshUser();
+  }, [token, refreshUser]);
 
   return (
     <AuthContext.Provider
@@ -189,10 +150,12 @@ export const AuthProvider = ({ children }) => {
         user,
         token,
         loading,
+        authReady,
         setLoading,
         login,
         logout,
         updateUser,
+        refreshUser,
         isAuthenticated: Boolean(token && user),
       }}
     >
@@ -201,165 +164,87 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// ======================================================
-// CART PROVIDER
-// ======================================================
-
 export const CartProvider = ({ children }) => {
   const [cart, setCart] = useState(() => {
     try {
       const savedCart = localStorage.getItem("agroconnect_cart");
-
       return savedCart ? JSON.parse(savedCart) : [];
     } catch (error) {
       console.error("Failed to parse saved cart:", error);
-
       localStorage.removeItem("agroconnect_cart");
-
       return [];
     }
   });
 
-  // ----------------------------------------------------
-  // Add item to cart
-  // ----------------------------------------------------
-
   const addToCart = useCallback((product) => {
     setCart((previousCart) => {
-      // Support both MongoDB _id and normal id
       const productId = product?._id || product?.id;
-
       const existingItem = previousCart.find(
         (item) => (item?._id || item?.id) === productId
       );
 
-      let updatedCart;
+      const updatedCart = existingItem
+        ? previousCart.map((item) =>
+            (item?._id || item?.id) === productId
+              ? {
+                  ...item,
+                  quantity: (item.quantity || 1) + (product.quantity || 1),
+                }
+              : item
+          )
+        : [...previousCart, { ...product, quantity: product.quantity || 1 }];
 
-      if (existingItem) {
-        updatedCart = previousCart.map((item) => {
-          const itemId = item?._id || item?.id;
-
-          if (itemId === productId) {
-            return {
-              ...item,
-              quantity:
-                (item.quantity || 1) +
-                (product.quantity || 1),
-            };
-          }
-
-          return item;
-        });
-      } else {
-        updatedCart = [
-          ...previousCart,
-          {
-            ...product,
-            quantity: product.quantity || 1,
-          },
-        ];
-      }
-
-      localStorage.setItem(
-        "agroconnect_cart",
-        JSON.stringify(updatedCart)
-      );
-
+      localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
       return updatedCart;
     });
   }, []);
-
-  // ----------------------------------------------------
-  // Remove item
-  // ----------------------------------------------------
 
   const removeFromCart = useCallback((productId) => {
     setCart((previousCart) => {
       const updatedCart = previousCart.filter(
-        (item) =>
-          (item?._id || item?.id) !== productId
+        (item) => (item?._id || item?.id) !== productId
       );
-
-      localStorage.setItem(
-        "agroconnect_cart",
-        JSON.stringify(updatedCart)
-      );
-
+      localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
       return updatedCart;
     });
   }, []);
 
-  // ----------------------------------------------------
-  // Update quantity
-  // ----------------------------------------------------
+  const updateQuantity = useCallback((productId, quantity) => {
+    const newQuantity = Number(quantity);
 
-  const updateQuantity = useCallback(
-    (productId, quantity) => {
-      const newQuantity = Number(quantity);
+    setCart((previousCart) => {
+      const updatedCart =
+        newQuantity <= 0
+          ? previousCart.filter((item) => (item?._id || item?.id) !== productId)
+          : previousCart.map((item) =>
+              (item?._id || item?.id) === productId
+                ? { ...item, quantity: newQuantity }
+                : item
+            );
 
-      setCart((previousCart) => {
-        let updatedCart;
-
-        // Remove product if quantity <= 0
-        if (newQuantity <= 0) {
-          updatedCart = previousCart.filter(
-            (item) =>
-              (item?._id || item?.id) !== productId
-          );
-        } else {
-          updatedCart = previousCart.map((item) =>
-            (item?._id || item?.id) === productId
-              ? {
-                  ...item,
-                  quantity: newQuantity,
-                }
-              : item
-          );
-        }
-
-        localStorage.setItem(
-          "agroconnect_cart",
-          JSON.stringify(updatedCart)
-        );
-
-        return updatedCart;
-      });
-    },
-    []
-  );
-
-  // ----------------------------------------------------
-  // Clear cart
-  // ----------------------------------------------------
+      localStorage.setItem("agroconnect_cart", JSON.stringify(updatedCart));
+      return updatedCart;
+    });
+  }, []);
 
   const clearCart = useCallback(() => {
     setCart([]);
-
     localStorage.removeItem("agroconnect_cart");
   }, []);
 
-  // ----------------------------------------------------
-  // Total price
-  // ----------------------------------------------------
+  const getTotalPrice = useCallback(
+    () =>
+      cart.reduce(
+        (total, item) => total + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+        0
+      ),
+    [cart]
+  );
 
-  const getTotalPrice = useCallback(() => {
-    return cart.reduce((total, item) => {
-      const price = Number(item.price) || 0;
-      const quantity = Number(item.quantity) || 0;
-
-      return total + price * quantity;
-    }, 0);
-  }, [cart]);
-
-  // ----------------------------------------------------
-  // Total item count
-  // ----------------------------------------------------
-
-  const getTotalItems = useCallback(() => {
-    return cart.reduce((total, item) => {
-      return total + (Number(item.quantity) || 0);
-    }, 0);
-  }, [cart]);
+  const getTotalItems = useCallback(
+    () => cart.reduce((total, item) => total + (Number(item.quantity) || 0), 0),
+    [cart]
+  );
 
   return (
     <CartContext.Provider
@@ -379,35 +264,18 @@ export const CartProvider = ({ children }) => {
   );
 };
 
-// ======================================================
-// LOCATION PROVIDER
-// ======================================================
-
 export const LocationProvider = ({ children }) => {
   const [location, setLocation] = useState(null);
-
   const [nearbyUsers, setNearbyUsers] = useState([]);
-
   const [loading, setLoading] = useState(false);
-
-  const [locationError, setLocationError] =
-    useState(null);
-
-  // ----------------------------------------------------
-  // Get browser location
-  // ----------------------------------------------------
+  const [locationError, setLocationError] = useState(null);
 
   const getLocation = useCallback(() => {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        const error = new Error(
-          "Geolocation is not supported by this browser."
-        );
-
+        const error = new Error("Geolocation is not supported by this browser.");
         setLocationError(error.message);
-
         reject(error);
-
         return;
       }
 
@@ -416,37 +284,18 @@ export const LocationProvider = ({ children }) => {
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const {
-            latitude,
-            longitude,
-          } = position.coords;
-
-          const currentLocation = {
-            latitude,
-            longitude,
-          };
-
+          const { latitude, longitude } = position.coords;
+          const currentLocation = { latitude, longitude };
           setLocation(currentLocation);
           setLoading(false);
-
           resolve(currentLocation);
         },
-
         (error) => {
-          console.error(
-            "Failed to get location:",
-            error
-          );
-
+          console.error("Failed to get location:", error);
           setLoading(false);
-          setLocationError(
-            error.message ||
-              "Unable to get your location."
-          );
-
+          setLocationError(error.message || "Unable to get your location.");
           reject(error);
         },
-
         {
           enableHighAccuracy: true,
           timeout: 10000,
@@ -473,82 +322,36 @@ export const LocationProvider = ({ children }) => {
   );
 };
 
-// ======================================================
-// NOTIFICATION PROVIDER
-// ======================================================
+export const NotificationProvider = ({ children }) => {
+  const [notifications, setNotifications] = useState([]);
 
-export const NotificationProvider = ({
-  children,
-}) => {
-  const [notifications, setNotifications] =
-    useState([]);
+  const addNotification = useCallback((message, type = "info", duration = 3000) => {
+    const id = Date.now() + Math.random().toString(36).slice(2);
+    const notification = { id, message, type };
 
-  // ----------------------------------------------------
-  // Add notification
-  // ----------------------------------------------------
+    setNotifications((previous) => [...previous, notification]);
 
-  const addNotification = useCallback(
-    (
-      message,
-      type = "info",
-      duration = 3000
-    ) => {
-      const id =
-        Date.now() +
-        Math.random().toString(36).slice(2);
+    if (duration > 0) {
+      setTimeout(() => {
+        setNotifications((previous) =>
+          previous.filter((notificationItem) => notificationItem.id !== id)
+        );
+      }, duration);
+    }
 
-      const notification = {
-        id,
-        message,
-        type,
-      };
+    return id;
+  }, []);
 
-      setNotifications((previous) => [
-        ...previous,
-        notification,
-      ]);
-
-      if (duration > 0) {
-        setTimeout(() => {
-          setNotifications((previous) =>
-            previous.filter(
-              (notificationItem) =>
-                notificationItem.id !== id
-            )
-          );
-        }, duration);
-      }
-
-      return id;
-    },
-    []
-  );
-
-  // ----------------------------------------------------
-  // Remove notification manually
-  // ----------------------------------------------------
-
-  const removeNotification = useCallback(
-    (id) => {
-      setNotifications((previous) =>
-        previous.filter(
-          (notification) =>
-            notification.id !== id
-        )
-      );
-    },
-    []
-  );
-
-  // ----------------------------------------------------
-  // Clear notifications
-  // ----------------------------------------------------
+  const removeNotification = useCallback((id) => {
+    setNotifications((previous) =>
+      previous.filter((notification) => notification.id !== id)
+    );
+  }, []);
 
   const clearNotifications = useCallback(() => {
     setNotifications([]);
   }, []);
 
-  // Alias for pages that might use showNotification()
   const showNotification = addNotification;
 
   return (

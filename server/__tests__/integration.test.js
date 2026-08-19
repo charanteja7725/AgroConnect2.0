@@ -1290,7 +1290,7 @@ describe("Payment Tests", () => {
     "POST /api/payments/webhook",
     () => {
       test(
-        "should return 400 if webhook secret not configured",
+        "should return 503 if webhook is not configured",
         async () => {
           const res =
             await request(app)
@@ -1302,7 +1302,7 @@ describe("Payment Tests", () => {
                   "payment_intent.succeeded",
               });
 
-          expect(res.status).toBe(400);
+          expect(res.status).toBe(503);
         }
       );
     }
@@ -1353,7 +1353,7 @@ describe("Atomic Transaction Tests", () => {
           inStock: true,
         });
 
-      await request(app)
+      const addRes = await request(app)
         .post("/api/cart/add")
         .set(
           "Authorization",
@@ -1363,8 +1363,16 @@ describe("Atomic Transaction Tests", () => {
           productId:
             limitedProduct._id,
 
-          quantity: 2,
+          quantity: 1,
         });
+
+      expect(addRes.status).toBe(201);
+
+      // Simulate another buyer taking the final unit after this buyer added it
+      // to the cart but before checkout. The order route must re-check stock.
+      await Product.findByIdAndUpdate(limitedProduct._id, {
+        quantity: 0,
+      });
 
       const res = await request(app)
         .post("/api/orders/create")

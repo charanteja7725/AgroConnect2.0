@@ -1,5 +1,6 @@
 const express = require("express");
-const { Order, Cart } = require("../models/Order");
+const { Order } = require("../models/Order");
+const Cart = require("../models/Cart");
 const User = require("../models/User");
 const Product = require("../models/Product");
 const Delivery = require("../models/Delivery");
@@ -9,7 +10,8 @@ const { sendOrderConfirmation } = require("../services/mailService");
 const { buildGeoPoint } = require("../utils/geoUtils");
 
 const router = express.Router();
-const BUYER_FIELDS = "_id firstName lastName email phone avatar";
+
+const BUYER_FIELDS = "_id firstName lastName email phone avatar role";
 const SELLER_FIELDS = "_id firstName lastName phone businessName role avatar";
 const PARTNER_FIELDS = "_id firstName lastName phone avatar";
 
@@ -59,33 +61,31 @@ const createDeliveryForOrder = async (order) => {
     if (!buyer) return;
 
     for (const sellerId of Object.keys(itemsBySeller)) {
+      const existing = await Delivery.findOne({ order: order._id, sender: sellerId });
+      if (existing) continue;
+
       const seller = await User.findById(sellerId);
       if (!seller) continue;
 
       const sellerItems = itemsBySeller[sellerId];
-      const deliveryItems = sellerItems.map((item) => ({
-        product: item.product,
-        name: item.productName,
-        quantity: item.quantity,
-        weight: item.quantity,
-      }));
-
-      const recipientName = order.deliveryAddress?.fullName || `${buyer.firstName} ${buyer.lastName}`;
-      const recipientPhone = order.deliveryAddress?.phone || buyer.phone;
-      const hasFertilizer = sellerItems.some((item) => item.productType === "fertilizer");
-
       const deliveryCoords =
         order.deliveryAddress?.coordinates?.coordinates?.length === 2
           ? order.deliveryAddress.coordinates.coordinates
           : buyer.location?.coordinates?.length === 2
             ? buyer.location.coordinates
             : [0, 0];
-
       const senderCoords =
         seller.location?.coordinates?.length === 2 ? seller.location.coordinates : [0, 0];
+      const sellerSubtotal = sellerItems.reduce(
+        (sum, item) => sum + (Number(item.totalPrice) || Number(item.price) * Number(item.quantity) || 0),
+        0
+      );
+      const deliveryCharge = Math.max(40, Math.round(sellerSubtotal * 0.05));
 
       await Delivery.create({
-        type: hasFertilizer ? "fertilizer" : "product",
+        type: sellerItems.some((item) => item.productType === "fertilizer")
+          ? "fertilizer"
+          : "product",
         order: order._id,
         sender: seller._id,
         senderName: seller.businessName || `${seller.firstName} ${seller.lastName}`,
@@ -93,27 +93,58 @@ const createDeliveryForOrder = async (order) => {
         senderLocation: {
           type: "Point",
           coordinates: senderCoords,
-          address: seller.address
-            ? `${seller.address.street || ""}, ${seller.address.city || ""}`.trim()
-            : "Seller Address",
+          address: [seller.address?.street, seller.address?.city, seller.address?.state]
+            .filter(Boolean)
+            .join(", "),
         },
         recipient: buyer._id,
-        recipientName,
-        recipientPhone,
+        recipientName:
+          order.deliveryAddress?.fullName || `${buyer.firstName} ${buyer.lastName}`,
+        recipientPhone: order.deliveryAddress?.phone || buyer.phone,
         recipientEmail: buyer.email,
         recipientLocation: {
           type: "Point",
           coordinates: deliveryCoords,
-          address: order.deliveryAddress
-            ? `${order.deliveryAddress.street || ""}, ${order.deliveryAddress.city || ""}`.trim()
-            : "Recipient Address",
+          address: [
+            order.deliveryAddress?.street,
+            order.deliveryAddress?.city,
+            order.deliveryAddress?.state,
+            order.deliveryAddress?.zipCode,
+          ]
+            .filter(Boolean)
+            .join(", "),
         },
-        items: deliveryItems,
+        items: sellerItems.map((item) => ({
+          product: item.product,
+          name: item.productName,
+          quantity: item.quantity,
+          weight: item.quantity,
+        })),
         status: "assigned",
+        deliveryCharge,
+        totalEarnings: deliveryCharge,
+        statusHistory: [
+          {
+            status: "assigned",
+            timestamp: new Date(),
+            note: "Delivery job created when order was confirmed",
+          },
+        ],
       });
     }
   } catch (err) {
     console.error("Error creating delivery automatically:", err);
+  }
+};
+
+const restoreOrderInventory = async (order) => {
+  for (const item of order.items) {
+    await Product.findByIdAndUpdate(item.product, {
+      $inc: {
+        quantity: Number(item.quantity) || 0,
+        totalSold: -(Number(item.quantity) || 0),
+      },
+    });
   }
 };
 
@@ -125,7 +156,11 @@ router.get("/", protect, async (req, res) => {
       query = {};
     } else if (req.user.role === "buyer") {
       query = { buyer: req.user._id };
-    } else if (["farmer", "fertilizer_seller"].includes(req.user.role)) {
+    } else if (req.user.role === "farmer") {
+      query = {
+        $or: [{ buyer: req.user._id }, { "items.seller": req.user._id }],
+      };
+    } else if (req.user.role === "fertilizer_seller") {
       query = { "items.seller": req.user._id };
     } else if (req.user.role === "delivery_partner") {
       query = { "delivery.partnerId": req.user._id };
@@ -163,7 +198,7 @@ router.get("/:id", protect, async (req, res) => {
   }
 });
 
-router.post("/create", protect, authorize("buyer"), async (req, res) => {
+router.post("/create", protect, authorize("buyer", "farmer"), async (req, res) => {
   try {
     const { billingAddress, deliveryAddress, paymentMethod } = req.body;
     if (!deliveryAddress) {
@@ -188,6 +223,25 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
       return res.status(400).json({ error: "Invalid delivery address coordinates" });
     }
 
+    // Contact details may be omitted by older clients because they already
+    // exist on the authenticated account. Fill them from the trusted user profile.
+    sanitizedDeliveryAddress.fullName =
+      String(sanitizedDeliveryAddress.fullName || "").trim() ||
+      [req.user.firstName, req.user.lastName].filter(Boolean).join(" ");
+    sanitizedDeliveryAddress.phone =
+      String(sanitizedDeliveryAddress.phone || "").trim() || String(req.user.phone || "").trim();
+    sanitizedDeliveryAddress.country =
+      String(sanitizedDeliveryAddress.country || "").trim() || "India";
+
+    const requiredAddressFields = ["fullName", "phone", "street", "city", "state", "zipCode"];
+    if (
+      requiredAddressFields.some(
+        (field) => !String(sanitizedDeliveryAddress?.[field] || "").trim()
+      )
+    ) {
+      return res.status(400).json({ error: "Complete delivery name, phone and address are required" });
+    }
+
     const sanitizedBillingAddress = billingAddress
       ? sanitizeAddress(billingAddress)
       : sanitizedDeliveryAddress;
@@ -208,56 +262,95 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
       return res.status(400).json({ error: "Invalid payment method" });
     }
 
-    const cart = await Cart.findOne({ user: req.user._id }).populate("items.product");
+    const cart = await Cart.findOne({ user: req.user._id });
     if (!cart || cart.items.length === 0) {
       return res.status(400).json({ error: "Cart is empty" });
     }
 
     const orderItems = [];
-    for (const item of cart.items) {
-      const product = await Product.findById(item.product);
+    for (const cartItem of cart.items) {
+      const product = await Product.findById(cartItem.product);
       if (!product || !product.isActive || !product.inStock) {
         return res.status(400).json({ error: "A cart product is no longer available" });
       }
-      if (product.quantity < item.quantity) {
+      if (Number(product.quantity) < Number(cartItem.quantity)) {
         return res.status(400).json({ error: `Insufficient quantity for ${product.name}` });
       }
+      if (product.seller.toString() === req.user._id.toString()) {
+        return res.status(400).json({ error: "You cannot purchase your own product" });
+      }
+      if (req.user.role === "farmer" && product.type !== "fertilizer") {
+        return res.status(403).json({
+          error: "Farmer shopping accounts can purchase fertilizer-store products only",
+        });
+      }
 
+      const itemQuantity = Number(cartItem.quantity);
       orderItems.push({
         product: product._id,
         seller: product.seller,
         sellerName: product.sellerName,
         productName: product.name,
-        quantity: item.quantity,
-        price: product.price,
-        totalPrice: item.totalPrice,
+        quantity: itemQuantity,
+        price: Number(product.price),
+        totalPrice: Number(product.price) * itemQuantity,
         productType: product.type || "produce",
       });
     }
 
-    // Use conditional stock decrement to reduce overselling during concurrent checkout.
-    for (const item of orderItems) {
-      const updatedProduct = await Product.findOneAndUpdate(
-        { _id: item.product, quantity: { $gte: item.quantity }, isActive: true, inStock: true },
-        { $inc: { quantity: -item.quantity, totalSold: item.quantity } },
-        { new: true, runValidators: true }
-      );
-      if (!updatedProduct) {
-        return res.status(409).json({ error: `Stock changed for ${item.productName}. Please review your cart.` });
+    const subtotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const tax = Math.round(subtotal * 0.05);
+    const totalAmount = subtotal + tax;
+
+    const reserved = [];
+    try {
+      for (const item of orderItems) {
+        const updatedProduct = await Product.findOneAndUpdate(
+          {
+            _id: item.product,
+            quantity: { $gte: item.quantity },
+            isActive: true,
+            inStock: true,
+          },
+          { $inc: { quantity: -item.quantity, totalSold: item.quantity } },
+          { new: true, runValidators: true }
+        );
+
+        if (!updatedProduct) {
+          throw new Error(`Stock changed for ${item.productName}. Please review your cart.`);
+        }
+        reserved.push(item);
       }
+    } catch (reserveError) {
+      for (const item of reserved) {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { quantity: item.quantity, totalSold: -item.quantity },
+        });
+      }
+      return res.status(409).json({ error: reserveError.message });
     }
 
-    const order = await Order.create({
-      buyer: req.user._id,
-      items: orderItems,
-      billingAddress: sanitizedBillingAddress || sanitizedDeliveryAddress,
-      deliveryAddress: sanitizedDeliveryAddress,
-      subtotal: cart.totalPrice,
-      shippingCost: 0,
-      tax: Math.round(cart.totalPrice * 0.05),
-      totalAmount: Math.round(cart.totalPrice * 1.05),
-      payment: { method: paymentMethodValue, status: "pending" },
-    });
+    let order;
+    try {
+      order = await Order.create({
+        buyer: req.user._id,
+        items: orderItems,
+        billingAddress: sanitizedBillingAddress || sanitizedDeliveryAddress,
+        deliveryAddress: sanitizedDeliveryAddress,
+        subtotal,
+        shippingCost: 0,
+        tax,
+        totalAmount,
+        payment: { method: paymentMethodValue, status: "pending" },
+      });
+    } catch (orderError) {
+      for (const item of reserved) {
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { quantity: item.quantity, totalSold: -item.quantity },
+        });
+      }
+      throw orderError;
+    }
 
     try {
       await sendOrderConfirmation(order, req.user);
@@ -268,7 +361,7 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, { $inc: { totalOrders: 1 } });
     await Cart.findOneAndUpdate(
       { user: req.user._id },
-      { items: [], totalQuantity: 0, totalPrice: 0 }
+      { items: [], totalQuantity: 0, totalPrice: 0, lastUpdated: new Date() }
     );
 
     const io = req.app.get("io");
@@ -287,7 +380,7 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
     await sendNotification(
       req.user._id,
       "Order Placed Successfully",
-      `Your order #${order._id} has been placed`,
+      `Your order #${order.orderNumber || order._id} has been placed`,
       "order",
       order._id,
       `/orders/${order._id}`,
@@ -301,14 +394,18 @@ router.post("/create", protect, authorize("buyer"), async (req, res) => {
   }
 });
 
+const ORDER_TRANSITIONS = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["processing", "shipped", "delivered", "cancelled"],
+  processing: ["shipped", "delivered", "cancelled"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
+
 router.put("/:id/status", protect, async (req, res) => {
   try {
     const { status, note } = req.body;
-    const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: "Invalid status" });
-    }
-
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
 
@@ -322,10 +419,22 @@ router.put("/:id/status", protect, async (req, res) => {
       return res.status(403).json({ error: "Not authorized to update this order" });
     }
 
+    const allowedNext = ORDER_TRANSITIONS[order.status] || [];
+    if (!allowedNext.includes(status)) {
+      return res.status(400).json({
+        error: `Order cannot move from ${order.status} to ${status}`,
+      });
+    }
+
+    const previousStatus = order.status;
     order.status = status;
     order.statusHistory.push({ status, timestamp: new Date(), note });
-    await order.save();
 
+    if (status === "cancelled" && previousStatus !== "cancelled") {
+      await restoreOrderInventory(order);
+    }
+
+    await order.save();
     if (status === "confirmed") await createDeliveryForOrder(order);
 
     const io = req.app.get("io");
@@ -344,7 +453,7 @@ router.put("/:id/status", protect, async (req, res) => {
   }
 });
 
-router.post("/:id/cancel", protect, authorize("buyer"), async (req, res) => {
+router.post("/:id/cancel", protect, authorize("buyer", "farmer"), async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
@@ -353,17 +462,20 @@ router.post("/:id/cancel", protect, authorize("buyer"), async (req, res) => {
       return res.status(403).json({ error: "Not authorized to cancel this order" });
     }
 
-    if (["delivered", "cancelled"].includes(order.status)) {
+    if (!ORDER_TRANSITIONS[order.status]?.includes("cancelled")) {
       return res.status(400).json({ error: `Cannot cancel order with status: ${order.status}` });
     }
 
+    const previousStatus = order.status;
     order.status = "cancelled";
-    order.cancelReason = req.body.cancelReason;
+    order.cancelReason = String(req.body.cancelReason || "Cancelled by buyer").trim();
     order.statusHistory.push({
       status: "cancelled",
       timestamp: new Date(),
-      note: req.body.cancelReason,
+      note: order.cancelReason,
     });
+
+    if (previousStatus !== "cancelled") await restoreOrderInventory(order);
     await order.save();
 
     return res.json({ success: true, order, message: "Order cancelled successfully" });

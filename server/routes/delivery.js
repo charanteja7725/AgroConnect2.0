@@ -24,6 +24,30 @@ const canAccessDelivery = (delivery, user) => {
   );
 };
 
+const DELIVERY_TRANSITIONS = {
+  assigned: ["picked_up", "cancelled", "failed"],
+  accepted: ["picked_up", "cancelled", "failed"],
+  picked_up: ["in_transit", "cancelled", "failed"],
+  in_transit: ["near_delivery", "delivered", "failed"],
+  near_delivery: ["delivered", "failed"],
+  delivered: [],
+  cancelled: [],
+  failed: [],
+};
+
+const validPoint = (latitude, longitude) => {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+};
+
 router.get("/", protect, async (req, res) => {
   try {
     let query;
@@ -43,7 +67,6 @@ router.get("/", protect, async (req, res) => {
     const deliveries = await populateDelivery(
       Delivery.find(query).sort({ createdAt: -1 })
     );
-
     return res.json({ success: true, count: deliveries.length, deliveries });
   } catch (err) {
     return res.status(500).json({ error: "Error fetching deliveries: " + err.message });
@@ -54,29 +77,31 @@ router.get("/nearby", protect, authorize("delivery_partner"), async (req, res) =
   try {
     const { longitude, latitude, maxDistance = 50000 } = req.query;
     const query = {
-      $or: [
-        { deliveryPartner: req.user._id },
-        { deliveryPartner: { $exists: false } },
-        { deliveryPartner: null },
-      ],
-      status: { $in: ["assigned", "accepted", "picked_up"] },
+      $or: [{ deliveryPartner: { $exists: false } }, { deliveryPartner: null }],
+      status: "assigned",
     };
 
-    if (longitude !== undefined || latitude !== undefined) {
-      const lng = Number(longitude);
-      const lat = Number(latitude);
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    const suppliedCoordinates = longitude !== undefined || latitude !== undefined;
+    if (suppliedCoordinates) {
+      if (!validPoint(latitude, longitude)) {
         return res.status(400).json({ error: "Valid longitude and latitude are required" });
       }
+
       query.recipientLocation = {
         $near: {
-          $geometry: { type: "Point", coordinates: [lng, lat] },
+          $geometry: {
+            type: "Point",
+            coordinates: [Number(longitude), Number(latitude)],
+          },
           $maxDistance: Math.min(200000, Math.max(1, Number(maxDistance) || 50000)),
         },
       };
     }
 
-    const deliveries = await Delivery.find(query).limit(15);
+    const deliveries = await Delivery.find(query)
+      .sort(suppliedCoordinates ? undefined : { createdAt: -1 })
+      .limit(15);
+
     return res.json({ success: true, count: deliveries.length, deliveries });
   } catch (err) {
     return res.status(500).json({ error: "Error fetching deliveries: " + err.message });
@@ -129,7 +154,11 @@ router.post("/create", protect, authorize("admin"), async (req, res) => {
       status: "assigned",
     });
 
-    return res.status(201).json({ success: true, delivery, message: "Delivery created successfully" });
+    return res.status(201).json({
+      success: true,
+      delivery,
+      message: "Delivery created successfully",
+    });
   } catch (err) {
     return res.status(500).json({ error: "Error creating delivery: " + err.message });
   }
@@ -142,12 +171,26 @@ router.put("/:id/assign", protect, authorize("admin"), async (req, res) => {
       role: "delivery_partner",
       isActive: true,
     });
-    if (!partner) return res.status(400).json({ error: "Active delivery partner not found" });
+    if (!partner) {
+      return res.status(400).json({ error: "Active delivery partner not found" });
+    }
 
     const delivery = await Delivery.findByIdAndUpdate(
       req.params.id,
-      { deliveryPartner: partner._id, status: "assigned" },
-      { new: true }
+      {
+        deliveryPartner: partner._id,
+        partnerName: `${partner.firstName} ${partner.lastName}`,
+        partnerPhone: partner.phone || "",
+        status: "assigned",
+        $push: {
+          statusHistory: {
+            status: "assigned",
+            timestamp: new Date(),
+            note: "Assigned by administrator",
+          },
+        },
+      },
+      { new: true, runValidators: true }
     ).populate("deliveryPartner", USER_CONTACT_FIELDS);
 
     if (!delivery) return res.status(404).json({ error: "Delivery not found" });
@@ -159,23 +202,36 @@ router.put("/:id/assign", protect, authorize("admin"), async (req, res) => {
 
 router.put("/:id/accept", protect, authorize("delivery_partner"), async (req, res) => {
   try {
-    const delivery = await Delivery.findById(req.params.id);
-    if (!delivery) return res.status(404).json({ error: "Delivery not found" });
+    // Claim atomically so two partners cannot accept the same unassigned job.
+    const delivery = await Delivery.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        status: "assigned",
+        $or: [{ deliveryPartner: { $exists: false } }, { deliveryPartner: null }],
+      },
+      {
+        $set: {
+          deliveryPartner: req.user._id,
+          partnerName: `${req.user.firstName} ${req.user.lastName}`,
+          partnerPhone: req.user.phone || "",
+          status: "accepted",
+        },
+        $push: {
+          statusHistory: {
+            status: "accepted",
+            timestamp: new Date(),
+            note: "Delivery accepted by partner",
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    );
 
-    if (delivery.deliveryPartner && delivery.deliveryPartner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: "This delivery has already been claimed." });
+    if (!delivery) {
+      const existing = await Delivery.findById(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Delivery not found" });
+      return res.status(409).json({ error: "This delivery is no longer available to claim" });
     }
-
-    delivery.deliveryPartner = req.user._id;
-    delivery.partnerName = `${req.user.firstName} ${req.user.lastName}`;
-    delivery.partnerPhone = req.user.phone || "";
-    delivery.status = "accepted";
-    delivery.statusHistory.push({
-      status: "accepted",
-      timestamp: new Date(),
-      note: "Delivery accepted by partner",
-    });
-    await delivery.save();
 
     return res.json({ success: true, delivery, message: "Delivery accepted successfully" });
   } catch (err) {
@@ -186,11 +242,6 @@ router.put("/:id/accept", protect, authorize("delivery_partner"), async (req, re
 router.put("/:id/status", protect, authorize("delivery_partner"), async (req, res) => {
   try {
     const { status, location, note } = req.body;
-    const validStatuses = ["assigned", "accepted", "picked_up", "in_transit", "delivered", "failed"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: "Invalid delivery status" });
-    }
-
     const delivery = await Delivery.findById(req.params.id);
     if (!delivery) return res.status(404).json({ error: "Delivery not found" });
 
@@ -198,20 +249,45 @@ router.put("/:id/status", protect, authorize("delivery_partner"), async (req, re
       return res.status(403).json({ error: "Not authorized to update this delivery" });
     }
 
-    delivery.status = status;
-
-    if (location) {
-      const lat = Number(location.latitude);
-      const lng = Number(location.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return res.status(400).json({ error: "Invalid delivery location" });
-      }
-      delivery.route.push({ latitude: lat, longitude: lng, timestamp: new Date() });
-      delivery.partnerLocation = { type: "Point", coordinates: [lng, lat] };
+    const allowedNext = DELIVERY_TRANSITIONS[delivery.status] || [];
+    if (!allowedNext.includes(status)) {
+      return res.status(400).json({
+        error: `Delivery cannot move from ${delivery.status} to ${status}`,
+      });
     }
 
-    delivery.statusHistory.push({ status, timestamp: new Date(), location, note });
-    if (status === "delivered") delivery.actualDeliveryTime = new Date();
+    let normalizedLocation;
+    if (location) {
+      if (!validPoint(location.latitude, location.longitude)) {
+        return res.status(400).json({ error: "Invalid delivery location" });
+      }
+
+      normalizedLocation = {
+        latitude: Number(location.latitude),
+        longitude: Number(location.longitude),
+      };
+      delivery.route.push({ ...normalizedLocation, timestamp: new Date() });
+      delivery.partnerLocation = {
+        type: "Point",
+        coordinates: [normalizedLocation.longitude, normalizedLocation.latitude],
+      };
+    }
+
+    delivery.status = status;
+    delivery.statusHistory.push({
+      status,
+      timestamp: new Date(),
+      location: normalizedLocation,
+      note,
+    });
+
+    if (status === "picked_up" && !delivery.pickupTime) {
+      delivery.pickupTime = new Date();
+    }
+    if (status === "delivered") {
+      delivery.actualDeliveryTime = new Date();
+    }
+
     await delivery.save();
 
     try {
@@ -225,12 +301,16 @@ router.put("/:id/status", protect, authorize("delivery_partner"), async (req, re
     if (io) {
       io.emit("delivery_location_update", {
         deliveryId: delivery._id,
-        location,
+        location: normalizedLocation,
         status,
       });
     }
 
-    return res.json({ success: true, delivery, message: `Delivery status updated to ${status}` });
+    return res.json({
+      success: true,
+      delivery,
+      message: `Delivery status updated to ${status}`,
+    });
   } catch (err) {
     return res.status(500).json({ error: "Error updating delivery: " + err.message });
   }

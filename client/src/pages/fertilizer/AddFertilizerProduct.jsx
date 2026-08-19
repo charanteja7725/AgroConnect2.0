@@ -1,106 +1,177 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AppContext.jsx";
-import { useLanguage } from "../../context/LanguageContext.jsx";
-import { productAPI } from "../../services/api.js";
+import { useAuth, useNotification } from "../../context/AppHooks.js";
+import { productAPI, uploadAPI } from "../../services/api.js";
 import LocationService from "../../services/LocationService.js";
 import "./addfertilizerproduct.css";
 
 const AddFertilizerProduct = () => {
-  const { t } = useLanguage();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { addNotification } = useNotification();
+
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [currentLocation, setCurrentLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [locationError, setLocationError] = useState("");
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
-    category: "Chemical",
+    category: "npk",
     description: "",
     price: "",
     quantity: "",
     unit: "kg",
-    brand: "",
-    composition: "",
-    recommendedFor: "",
-    usageInstructions: "",
-    safetyInfo: "",
-    expiryDate: "",
     address: "",
-    images: [],
+    nitrogen: "",
+    phosphorus: "",
+    potassium: "",
   });
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+  useEffect(() => {
+    if (user && user.role !== "fertilizer_seller") {
+      addNotification?.("Only fertilizer seller accounts can add fertilizer products", "error");
+      navigate("/", { replace: true });
+    }
+  }, [addNotification, navigate, user]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  const handleInputChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageChange = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (file && !file.type.startsWith("image/")) {
+      addNotification?.("Please choose an image file", "error");
+      event.target.value = "";
+      return;
+    }
+    if (file && file.size > 10 * 1024 * 1024) {
+      addNotification?.("Product image must be 10 MB or smaller", "error");
+      event.target.value = "";
+      return;
+    }
+
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
+    setImagePreview(file ? URL.createObjectURL(file) : "");
   };
 
   const handleUseCurrentLocation = async () => {
     setLocationLoading(true);
-    setLocationError("");
-
     try {
       const position = await LocationService.getCurrentLocation();
       setCurrentLocation(position);
-      const address = await LocationService.reverseGeocode(position.latitude, position.longitude);
-      setFormData((prev) => ({
-        ...prev,
-        address: address?.display_name || LocationService.formatCoordinates(position.latitude, position.longitude),
-      }));
+
+      const address = await LocationService.reverseGeocode(
+        position.latitude,
+        position.longitude
+      );
+
+      const formattedAddress = address
+        ? [
+            address.road,
+            address.village || address.town || address.city,
+            address.state,
+            address.postcode,
+          ]
+            .filter(Boolean)
+            .join(", ")
+        : LocationService.formatCoordinates(position.latitude, position.longitude);
+
+      setFormData((prev) => ({ ...prev, address: formattedAddress }));
+      addNotification?.("Store/product GPS location captured", "success");
     } catch (err) {
-      setLocationError(err.message || "Unable to get current location");
+      addNotification?.(err.message || "Unable to get current location", "error");
     } finally {
       setLocationLoading(false);
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const price = Number(formData.price);
+    const quantity = Number(formData.quantity);
+
+    if (!formData.name.trim() || !formData.description.trim() || !formData.category) {
+      addNotification?.("Name, category and description are required", "error");
+      return;
+    }
+
+    if (!Number.isFinite(price) || price <= 0) {
+      addNotification?.("Enter a valid price greater than zero", "error");
+      return;
+    }
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      addNotification?.("Enter a valid quantity greater than zero", "error");
+      return;
+    }
+
+    if (!formData.address.trim()) {
+      addNotification?.("Enter the seller/pickup address", "error");
+      return;
+    }
+
     setLoading(true);
-    setError("");
-    setSuccess("");
 
     try {
-      // Validate required fields
-      if (!formData.name || !formData.price || !formData.quantity) {
-        throw new Error("Please fill in all required fields");
+      let images = [];
+      if (imageFile) {
+        const uploadForm = new FormData();
+        uploadForm.append("image", imageFile);
+        const uploaded = await uploadAPI.uploadImage(uploadForm);
+        if (uploaded?.url) {
+          images = [{ url: uploaded.url, publicId: uploaded.publicId }];
+        }
       }
 
-      const productData = {
-        ...formData,
-        seller: user._id,
-        sellerName: `${user.firstName} ${user.lastName}`,
-        price: parseFloat(formData.price),
-        quantity: parseInt(formData.quantity),
-        type: "fertilizer",
-        isActive: true,
-        address: formData.address,
-        location: currentLocation
-          ? {
-              type: "Point",
-              coordinates: [currentLocation.longitude, currentLocation.latitude],
-            }
-          : {
-              type: "Point",
-              coordinates: [0, 0],
-            },
+      const composition = {
+        nitrogen: Number(formData.nitrogen) || 0,
+        phosphorus: Number(formData.phosphorus) || 0,
+        potassium: Number(formData.potassium) || 0,
       };
 
-      await productAPI.createProduct(productData);
+      const result = await productAPI.createProduct({
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        type: "fertilizer",
+        category: formData.category,
+        price,
+        quantity,
+        unit: formData.unit,
+        images,
+        address: formData.address.trim(),
+        location: {
+          type: "Point",
+          coordinates: currentLocation
+            ? [Number(currentLocation.longitude), Number(currentLocation.latitude)]
+            : [0, 0],
+          address: formData.address.trim(),
+        },
+        composition,
+      });
 
-      setSuccess("Fertilizer product added successfully!");
-      setTimeout(() => {
-        navigate("/fertilizer");
-      }, 2000);
+      addNotification?.(
+        result?.message ||
+          (result?.isPublished === false
+            ? "Fertilizer saved as draft"
+            : "Fertilizer product added successfully"),
+        result?.isPublished === false ? "info" : "success"
+      );
+
+      navigate("/fertilizer");
     } catch (err) {
-      setError(err.message || "Failed to add product");
+      addNotification?.(err.message || "Failed to add fertilizer product", "error");
     } finally {
       setLoading(false);
     }
@@ -108,42 +179,39 @@ const AddFertilizerProduct = () => {
 
   return (
     <div className="add-product-page">
-      {/* Topbar */}
       <div className="add-product-topbar">
         <div className="add-product-topbar-inner">
           <div className="add-product-brand">🌱 AgroConnect</div>
-          <div className="add-product-title">{t("addFertilizerProductTitle")}</div>
+          <div className="add-product-title">Add Fertilizer Product</div>
           <button className="back-btn" onClick={() => navigate("/fertilizer")}>
-            ← {t("backToDashboard")}
+            ← Back to Dashboard
           </button>
         </div>
       </div>
 
       <div className="add-product-container">
         <div className="add-product-form-container">
-          <h2>{t("addProductTitle")}</h2>
-
-          {error && <div className="error-message">{error}</div>}
-          {success && <div className="success-message">{success}</div>}
+          <h2>Add Product</h2>
 
           <form onSubmit={handleSubmit} className="add-product-form">
             <div className="form-section">
-              <h3>{t("basicInformation")}</h3>
+              <h3>Basic Information</h3>
+
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="name">{t("productNameLabel")} *</label>
+                  <label htmlFor="name">Product Name *</label>
                   <input
-                    type="text"
                     id="name"
                     name="name"
                     value={formData.name}
                     onChange={handleInputChange}
-                    placeholder={t("productNamePlaceholder")}
+                    placeholder="e.g. NPK 19-19-19"
                     required
                   />
                 </div>
+
                 <div className="form-group">
-                  <label htmlFor="category">{t("categoryLabel")} *</label>
+                  <label htmlFor="category">Category *</label>
                   <select
                     id="category"
                     name="category"
@@ -151,36 +219,37 @@ const AddFertilizerProduct = () => {
                     onChange={handleInputChange}
                     required
                   >
-                    <option value="Chemical">Chemical</option>
-                    <option value="Organic">Organic</option>
-                    <option value="Bio-fertilizer">Bio-fertilizer</option>
-                    <option value="Micronutrients">Micronutrients</option>
+                    <option value="npk">NPK Fertilizer</option>
+                    <option value="organic">Organic / Bio Fertilizer</option>
+                    <option value="pesticide">Pesticide</option>
+                    <option value="seeds">Seeds</option>
                   </select>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="description">{t("descriptionLabel")}</label>
+                <label htmlFor="description">Description *</label>
                 <textarea
                   id="description"
                   name="description"
                   value={formData.description}
                   onChange={handleInputChange}
-                  placeholder={t("descriptionPlaceholder")}
+                  placeholder="Describe the product, recommended use, packaging and safety information"
                   rows="4"
+                  required
                 />
               </div>
 
               <div className="form-group">
-                <label htmlFor="address">{t("locationLabel")} / {t("addressLabel")}</label>
+                <label htmlFor="address">Pickup / Store Address *</label>
                 <div className="location-field-wrapper">
                   <input
-                    type="text"
                     id="address"
                     name="address"
                     value={formData.address}
                     onChange={handleInputChange}
-                    placeholder={t("enterLocationPlaceholder")}
+                    placeholder="Enter store or pickup address"
+                    required
                   />
                   <button
                     type="button"
@@ -188,162 +257,102 @@ const AddFertilizerProduct = () => {
                     onClick={handleUseCurrentLocation}
                     disabled={locationLoading}
                   >
-                    {locationLoading ? t("locating") : `📍 ${t("useCurrentLocation")}`}
+                    {locationLoading ? "Locating..." : "📍 Use Current Location"}
                   </button>
                 </div>
-                {locationError && <p className="location-error">{locationError}</p>}
+                {currentLocation && (
+                  <small>
+                    GPS: {Number(currentLocation.latitude).toFixed(6)},{" "}
+                    {Number(currentLocation.longitude).toFixed(6)}
+                  </small>
+                )}
+                {!currentLocation && formData.address && (
+                  <small>No GPS captured. The product will be saved as a draft until valid GPS is added.</small>
+                )}
               </div>
             </div>
 
             <div className="form-section">
-              <h3>{t("pricingAndQuantity")}</h3>
+              <h3>Pricing and Stock</h3>
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="price">{t("marketPriceLabel")} *</label>
+                  <label htmlFor="price">Price (₹) *</label>
                   <input
                     type="number"
+                    min="0.01"
+                    step="0.01"
                     id="price"
                     name="price"
                     value={formData.price}
                     onChange={handleInputChange}
-                    placeholder={t("marketPricePlaceholder")}
-                    min="0"
-                    step="0.01"
                     required
                   />
                 </div>
+
                 <div className="form-group">
-                  <label htmlFor="quantity">{t("quantityLabel")} *</label>
+                  <label htmlFor="quantity">Quantity *</label>
                   <input
                     type="number"
+                    min="0.01"
+                    step="0.01"
                     id="quantity"
                     name="quantity"
                     value={formData.quantity}
                     onChange={handleInputChange}
-                    placeholder={t("quantityPlaceholder")}
-                    min="0"
                     required
                   />
                 </div>
+
                 <div className="form-group">
-                  <label htmlFor="unit">{t("unitLabel")}</label>
-                  <select
-                    id="unit"
-                    name="unit"
-                    value={formData.unit}
-                    onChange={handleInputChange}
-                  >
+                  <label htmlFor="unit">Unit</label>
+                  <select id="unit" name="unit" value={formData.unit} onChange={handleInputChange}>
                     <option value="kg">kg</option>
-                    <option value="bags">bags</option>
-                    <option value="liters">liters</option>
-                    <option value="tons">tons</option>
+                    <option value="liter">liter</option>
+                    <option value="bag">bag</option>
+                    <option value="piece">piece</option>
+                    <option value="box">box</option>
                   </select>
                 </div>
               </div>
             </div>
 
             <div className="form-section">
-              <h3>{t("productDetails")}</h3>
+              <h3>NPK Composition</h3>
+              <p>Enter percentages when applicable. Leave blank if not applicable.</p>
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="brand">{t("shopName")}</label>
-                  <input
-                    type="text"
-                    id="brand"
-                    name="brand"
-                    value={formData.brand}
-                    onChange={handleInputChange}
-                    placeholder={t("shopName")}
-                  />
+                  <label htmlFor="nitrogen">Nitrogen (N)</label>
+                  <input type="number" min="0" step="0.01" id="nitrogen" name="nitrogen" value={formData.nitrogen} onChange={handleInputChange} />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="expiryDate">{t("expiryDate")}</label>
-                  <input
-                    type="date"
-                    id="expiryDate"
-                    name="expiryDate"
-                    value={formData.expiryDate}
-                    onChange={handleInputChange}
-                  />
+                  <label htmlFor="phosphorus">Phosphorus (P)</label>
+                  <input type="number" min="0" step="0.01" id="phosphorus" name="phosphorus" value={formData.phosphorus} onChange={handleInputChange} />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="potassium">Potassium (K)</label>
+                  <input type="number" min="0" step="0.01" id="potassium" name="potassium" value={formData.potassium} onChange={handleInputChange} />
                 </div>
               </div>
+            </div>
 
+            <div className="form-section">
+              <h3>Product Image</h3>
               <div className="form-group">
-                <label htmlFor="composition">{t("compositionLabel")}</label>
-                <input
-                  type="text"
-                  id="composition"
-                  name="composition"
-                  value={formData.composition}
-                  onChange={handleInputChange}
-                  placeholder={t("compositionPlaceholder")}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="address">{t("locationLabel")} / {t("addressLabel")}</label>
-                <div className="location-field-wrapper">
-                  <input
-                    type="text"
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    placeholder={t("enterLocationPlaceholder")}
-                  />
-                  <button
-                    type="button"
-                    className="location-btn"
-                    onClick={handleUseCurrentLocation}
-                    disabled={locationLoading}
-                  >
-                    {locationLoading ? t("locating") : `📍 ${t("useCurrentLocation")}`}
-                  </button>
-                </div>
-                {locationError && <p className="location-error">{locationError}</p>}
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="recommendedFor">{t("recommendedForLabel")}</label>
-                <input
-                  type="text"
-                  id="recommendedFor"
-                  name="recommendedFor"
-                  value={formData.recommendedFor}
-                  onChange={handleInputChange}
-                  placeholder={t("recommendedForPlaceholder")}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="usageInstructions">{t("usageInstructionsLabel")}</label>
-                <textarea
-                  id="usageInstructions"
-                  name="usageInstructions"
-                  value={formData.usageInstructions}
-                  onChange={handleInputChange}
-                  placeholder={t("usageInstructionsPlaceholder")}
-                  rows="3"
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="safetyInfo">{t("safetyInformationLabel")}</label>
-                <textarea
-                  id="safetyInfo"
-                  name="safetyInfo"
-                  value={formData.safetyInfo}
-                  onChange={handleInputChange}
-                  placeholder={t("safetyInformationPlaceholder")}
-                  rows="3"
-                />
+                <input type="file" accept="image/*" onChange={handleImageChange} />
+                {imagePreview && (
+                  <div className="image-preview">
+                    <img src={imagePreview} alt="Fertilizer product preview" />
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="form-actions">
-              <button type="button" className="cancel-btn" onClick={() => navigate("/fertilizer")}>{t("cancel")}</button>
+              <button type="button" className="cancel-btn" onClick={() => navigate("/fertilizer")}>
+                Cancel
+              </button>
               <button type="submit" className="submit-btn" disabled={loading}>
-                {loading ? t("addingProduct") : t("addProductButton")}
+                {loading ? "Adding Product..." : "Add Fertilizer Product"}
               </button>
             </div>
           </form>

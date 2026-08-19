@@ -1,430 +1,285 @@
-# AgroConnect - Setup & Deployment Guide
+# AgroConnect Setup and Deployment
 
-## Table of Contents
-1. [Local Development Setup](#local-development-setup)
-2. [Backend Configuration](#backend-configuration)
-3. [Frontend Configuration](#frontend-configuration)
-4. [Database Setup](#database-setup)
-5. [API Keys & Services](#api-keys--services)
-6. [Running Locally](#running-locally)
-7. [Production Deployment](#production-deployment)
-8. [Troubleshooting](#troubleshooting)
+## Prerequisites
 
----
+- Node.js `20.19.0`
+- npm
+- MongoDB database (local or Atlas)
+- Cloudinary account for uploads/verification evidence
+- Payment-provider credentials if enabling online payment
+- SMTP credentials if enabling email delivery
 
-## Local Development Setup
+## Local backend
 
-### Prerequisites
-- Node.js v16+ and npm v8+
-- MongoDB v4.4+ (or MongoDB Atlas account)
-- Git
-- Postman (optional, for API testing)
-
-### Clone the Repository
-```bash
-git clone <repository-url>
-cd AGROCONNECT
-```
-
-### Install Dependencies
-
-**Backend:**
 ```bash
 cd server
 npm install
-```
-
-**Frontend:**
-```bash
-cd client
-npm install
-```
-
----
-
-## Backend Configuration
-
-### 1. Environment Variables
-Create `.env` file in the `server` directory based on `.env.example`:
-
-```bash
 cp .env.example .env
-```
-
-**Key Environment Variables:**
-```env
-NODE_ENV=development
-PORT=5003
-CLIENT_URL=http://localhost:5003
-
-# MongoDB Connection
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/agroconnect
-
-# JWT Configuration
-JWT_SECRET=your_super_secret_jwt_key_change_this_in_production
-JWT_EXPIRE=7d
-
-# Stripe Payment Gateway
-STRIPE_PUBLIC_KEY=pk_test_xxxxx
-STRIPE_SECRET_KEY=sk_test_xxxxx
-STRIPE_WEBHOOK_SECRET=whsec_xxxxx
-
-# Email Configuration
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASS=your_app_password
-SMTP_FROM=noreply@agroconnect.com
-
-# Cloudinary
-CLOUDINARY_NAME=xxxxx
-CLOUDINARY_API_KEY=xxxxx
-CLOUDINARY_API_SECRET=xxxxx
-
-# Google Maps API
-GOOGLE_MAPS_API_KEY=xxxxx
-```
-
----
-
-## Frontend Configuration
-
-### 1. Environment Variables
-Create `.env` file in the `client` directory:
-
-```bash
-cp .env.example .env
-```
-
-**Key Variables:**
-```env
-VITE_API_URL=http://localhost:5003/api
-```
-
-### 2. Build Configuration
-The project uses Vite for fast development and optimized production builds.
-
----
-
-## Database Setup
-
-### Option 1: MongoDB Atlas (Cloud - Recommended)
-
-1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
-2. Create a free account
-3. Create a new cluster
-4. Create a database user
-5. Whitelist your IP address
-6. Get the connection string and add to `.env`
-
-### Option 2: Local MongoDB
-
-```bash
-# Install MongoDB Community Edition
-# Then start the MongoDB service:
-mongod
-```
-
-**Connection String:**
-```env
-MONGODB_URI=mongodb://127.0.0.1:27017/agroconnect
-```
-
----
-
-## API Keys & Services
-
-### 1. Stripe Payment Gateway
-1. Go to [Stripe Dashboard](https://dashboard.stripe.com)
-2. Create a test account
-3. Get API keys (Public & Secret)
-4. Create webhook secret for local testing with `stripe-cli`
-5. Add keys to `.env`
-
-### 2. Email Service (Gmail SMTP)
-1. Enable 2-factor authentication on Gmail
-2. Generate an [App Password](https://myaccount.google.com/apppasswords)
-3. Use app password in `SMTP_PASS`
-
-### 3. Cloudinary (Image Upload)
-1. Go to [Cloudinary](https://cloudinary.com)
-2. Sign up free account
-3. Get API credentials from Dashboard
-4. Add to `.env`
-
-### 4. Google Maps API (Optional)
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a project
-3. Enable Maps API
-4. Create API key
-5. Add to `.env`
-
----
-
-## Running Locally
-
-### Terminal 1: Start Backend Server
-```bash
-cd server
-npm install  # First time only
-npm start
-```
-
-**Expected Output:**
-```
-✅ MongoDB Connected
-🚀 Server running at http://localhost:5003
-```
-
-### Terminal 2: Start Frontend Dev Server
-```bash
-cd client
-npm install  # First time only
 npm run dev
 ```
 
-**Expected Output:**
-```
-VITE v8.0.0 ready in 235 ms
+Default backend:
 
-➜  Local:   http://localhost:5003/
+```text
+http://localhost:5001
 ```
 
-### Open in Browser
+Health endpoint:
+
+```text
+http://localhost:5001/api/health
 ```
+
+Minimum local `.env` for core API development:
+
+```env
+NODE_ENV=development
+PORT=5001
+CLIENT_URL=http://localhost:5003
+MONGODB_URI=mongodb://127.0.0.1:27017/agroconnect
+JWT_SECRET=replace_with_random_secret_at_least_64_characters_long
+JWT_RESET_SECRET=replace_with_a_different_random_secret_at_least_64_characters_long
+JWT_EXPIRE=7d
+```
+
+Cloudinary is required for actual image/video upload workflows.
+
+## Local frontend
+
+```bash
+cd client
+npm install
+cp .env.example .env
+npm run dev
+```
+
+The Vite server is configured for:
+
+```text
 http://localhost:5003
 ```
 
----
+Client `.env`:
 
-## Production Deployment
+```env
+VITE_API_URL=http://localhost:5001/api
+```
 
-### 1. Build Frontend
+## Clean validation before deployment
+
+Backend:
+
+```bash
+cd server
+npm ci
+npm test -- --runInBand
+```
+
+Frontend:
+
 ```bash
 cd client
+npm ci
 npm run build
 ```
 
-This generates optimized files in `client/dist/`
+The repository GitHub Actions workflow performs those backend test and frontend build jobs on Node `20.19.0`.
 
-### 2. Deploy to Vercel (Recommended for Frontend)
+## Render backend deployment
 
-**Option A: Using Vercel CLI**
-```bash
-npm install -g vercel
-vercel
+Recommended service configuration for this repository:
+
+```text
+Root Directory: server
+Build Command: npm install
+Start Command: node server.js
 ```
 
-**Option B: Git Integration**
-1. Push code to GitHub
-2. Connect repository on [Vercel](https://vercel.com)
-3. Set environment variables in Vercel dashboard
-4. Deploy automatically on push
+Do not hard-code a production `PORT`; the server reads `process.env.PORT` and falls back to `5001` locally.
 
-### 3. Deploy Backend to Heroku
+### Required production environment
 
-**Option A: Using Heroku CLI**
-```bash
-npm install -g heroku
-heroku login
-heroku create your-app-name
-git push heroku main
+```env
+NODE_ENV=production
+MONGODB_URI=your_atlas_connection_string
+JWT_SECRET=your_random_64_plus_character_secret
+JWT_RESET_SECRET=a_different_random_64_plus_character_secret
+CLIENT_URL=https://YOUR-STABLE-VERCEL-DOMAIN.vercel.app
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 ```
 
-**Option B: Using Railway, Render, or AWS**
+Optional feature credentials:
 
-#### Railway.app (Easiest)
-1. Go to [Railway](https://railway.app)
-2. Connect GitHub repository
-3. Add MongoDB plugin
-4. Set environment variables
-5. Deploy
-
-#### Render
-1. Go to [Render](https://render.com)
-2. Create new Web Service
-3. Connect repository
-4. Set environment variables
-5. Deploy
-
-### 4. Setup MongoDB Atlas Production Database
-1. Create a production cluster
-2. Create a separate database user for production
-3. Setup backups
-4. Update `MONGODB_URI` with production connection string
-
-### 5. Environment Variables for Production
-Update all API keys and URLs in production deployment:
-- `NODE_ENV=production`
-- `CLIENT_URL=your-frontend-domain.com`
-- Update Stripe keys to production keys
-- Update email credentials
-- Ensure database is in production-grade cluster
-
----
-
-## Project Structure
-
-```
-AGROCONNECT/
-├── client/                 # React Frontend
-│   ├── src/
-│   │   ├── components/     # Reusable components
-│   │   ├── context/        # State management
-│   │   ├── hooks/          # Custom hooks (voice assistant)
-│   │   ├── pages/          # Page components
-│   │   ├── services/       # API & utility services
-│   │   ├── App.jsx         # Main app component
-│   │   └── main.jsx        # Entry point
-│   ├── package.json
-│   └── vite.config.js
-│
-└── server/                 # Express Backend
-    ├── routes/             # API route handlers
-    ├── models/             # Mongoose schemas
-    ├── middleware/         # Express middleware
-    ├── server.js           # Main server file
-    └── package.json
+```env
+RAZORPAY_KEY_ID=...
+RAZORPAY_KEY_SECRET=...
+STRIPE_SECRET_KEY=...
+STRIPE_WEBHOOK_SECRET=...
+SMTP_HOST=...
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASS=...
+SMTP_FROM=...
 ```
 
----
+### Render health check
 
-## Key Features
+Configure/use:
 
-### Frontend Features
-- ✅ Role-based authentication (Farmer, Buyer, Seller, Delivery, Admin)
-- ✅ Product browsing and search
-- ✅ Shopping cart and checkout
-- ✅ Voice search assistance
-- ✅ Real-time notifications
-- ✅ Location-based services
-- ✅ Responsive design
-
-### Backend Features
-- ✅ JWT authentication
-- ✅ Role-based authorization
-- ✅ Product management
-- ✅ Cart & Order management
-- ✅ Stripe payment integration
-- ✅ Real-time updates with Socket.io
-- ✅ AI-powered pricing suggestions
-- ✅ Delivery tracking
-
----
-
-## Troubleshooting
-
-### MongoDB Connection Error
-```
-Error: connect ECONNREFUSED 127.0.0.1:27017
-```
-**Solution:** Start MongoDB service or use MongoDB Atlas connection string
-
-### CORS Error in Browser
-```
-Access to XMLHttpRequest blocked by CORS policy
-```
-**Solution:** Ensure `CLIENT_URL` in server `.env` matches your frontend URL
-
-### Port Already in Use
-```
-Error: listen EADDRINUSE: address already in use :::
-```
-**Solution:** Kill process or change PORT in `.env`
-
-### Module Not Found
-```
-Cannot find module 'express'
-```
-**Solution:** Run `npm install` in the respective directory
-
-### Build Errors in Client
-```
-VITE build failed
-```
-**Solution:** 
-- Clear cache: `npm cache clean --force`
-- Delete node_modules: `rm -rf node_modules`
-- Reinstall: `npm install`
-- Rebuild: `npm run build`
-
----
-
-## Testing
-
-### Backend API Testing
-Use Postman or curl to test endpoints:
-
-```bash
-# Login
-curl -X POST http://localhost:5003/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "password123"
-  }'
-
-# Get Products
-curl http://localhost:5003/api/products
-
-# Health Check
-curl http://localhost:5003/api/health
+```text
+/api/health
 ```
 
-### Frontend Testing
-```bash
-# Run build and serve
-cd client
-npm run build
-npm run preview
+A healthy response should report the API status and indicate MongoDB/Cloudinary state. Farmer verification uploads will not work without Cloudinary.
+
+## Vercel frontend deployment
+
+Use:
+
+```text
+Root Directory: client
+Framework: Vite
+Build Command: npm run build
+Output Directory: dist
 ```
 
----
+Production environment variable:
 
-## Performance Optimization
+```env
+VITE_API_URL=https://YOUR-RENDER-SERVICE.onrender.com/api
+```
 
-### Frontend
-- Vite provides fast HMR (Hot Module Replacement)
-- Production build is optimized with tree-shaking and minification
-- Use CSS modules for scoped styling
-- Lazy load routes using React.lazy()
+Important:
 
-### Backend
-- Implement caching with Redis (optional)
-- Use database indexing for frequently queried fields
-- Implement API rate limiting
-- Use compression middleware
+- Include `/api` in `VITE_API_URL`.
+- Do not add `/api` to Render's `CLIENT_URL` value.
+- Redeploy Vercel after changing `VITE_API_URL`, because Vite variables are injected at build time.
 
----
+## SPA routing on Vercel
 
-## Security Best Practices
+The repository includes:
 
-1. **Environment Variables:** Never commit `.env` to git
-2. **Passwords:** Always hash passwords (bcryptjs)
-3. **JWT:** Keep JWT_SECRET secure and rotate periodically
-4. **HTTPS:** Use SSL/TLS in production
-5. **CORS:** Restrict to known domains only
-6. **Validation:** Always validate user input
-7. **Rate Limiting:** Implement rate limiting on sensitive endpoints
-8. **MongoDB:** Use IP whitelist and strong credentials
+```text
+client/vercel.json
+```
 
----
+It rewrites React Router paths to `index.html`. This is required so refreshing a route such as:
 
-## Support
+```text
+/login
+/farmer
+/verification
+/admin
+```
 
-For issues and questions:
-1. Check the troubleshooting section
-2. Review API documentation
-3. Check GitHub issues
-4. Contact development team
+does not produce a Vercel file-system 404.
 
----
+## Connecting Vercel and Render
 
-## License
+Use this relationship:
 
-MIT License - See LICENSE.md for details
+```text
+Vercel frontend
+   VITE_API_URL=https://backend.onrender.com/api
+        |
+        v
+Render backend
+   CLIENT_URL=https://frontend.vercel.app
+        |
+        v
+MongoDB / Cloudinary / payment services
+```
 
----
+No special direct Vercel-to-Render integration is required beyond correct URLs, CORS and environment variables.
 
-## Version
-AgroConnect v1.0.0
+## CORS
+
+The backend allows:
+
+- `http://localhost:5173`
+- `http://localhost:5174`
+- `CLIENT_URL`
+
+For production, `CLIENT_URL` must exactly match the browser origin of the deployed frontend (trailing slash is normalized by the backend).
+
+## MongoDB
+
+`MONGODB_URI` must point to the database used by the Render service. The server connects automatically outside test mode.
+
+If the `/api/health` endpoint reports MongoDB disconnected, inspect Render logs and MongoDB Atlas connectivity/access configuration.
+
+## Cloudinary
+
+Cloudinary is required by production startup because farmer verification depends on private evidence storage.
+
+Verification assets are uploaded as authenticated resources. Normal product images use regular upload delivery.
+
+## Payment deployment notes
+
+### Razorpay
+
+Configure both:
+
+```env
+RAZORPAY_KEY_ID
+RAZORPAY_KEY_SECRET
+```
+
+The current online payment create/confirm flow validates stored orders and Razorpay signatures. Development mock fallback is not allowed in production.
+
+### Stripe
+
+The repository has a Stripe webhook endpoint. Configure:
+
+```env
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+```
+
+when using that webhook flow.
+
+## Email deployment notes
+
+`server/services/mailService.js` uses SMTP settings when configured. Registration, password-reset, order and delivery flows should not depend on exposing SMTP credentials to the frontend.
+
+## GitHub Actions
+
+Workflow file:
+
+```text
+.github/workflows/ci-cd.yml
+```
+
+Triggers:
+
+- pushes to `main` or `charan`
+- pull requests to `main` or `charan`
+- manual workflow dispatch
+
+Jobs:
+
+- Backend Tests (Node.js & Jest)
+- Frontend Build (Vite & React)
+
+## Post-deployment smoke test
+
+Verify in this order:
+
+```text
+1. GET backend /api/health
+2. Open frontend /
+3. Open /login directly and refresh it
+4. Register/login a normal user
+5. Load marketplace products
+6. Farmer: open /verification
+7. Confirm product/farm uploads if Cloudinary is configured
+8. Confirm admin/verification employee role routing with test accounts
+9. Create a cart/order in a non-production test environment
+10. Test payment only with provider test credentials until ready for live use
+```
+
+## Secret handling
+
+Never commit real `.env` files or provider secrets. If a credential has ever been committed to Git, replace the repository value with a placeholder and rotate the credential at the provider because Git history can retain the previous value.

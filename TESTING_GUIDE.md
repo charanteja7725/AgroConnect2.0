@@ -1,429 +1,223 @@
-# AgroConnect - Testing Guide
+# AgroConnect Testing Guide
 
-## API Testing Guide
+## Current automated test setup
 
-### Authentication Endpoints
+Backend testing uses:
 
-#### 1. User Registration
-**Endpoint:** `POST /api/auth/register`
+- Jest
+- Supertest
+- `mongodb-memory-server`
+
+Test files:
+
+```text
+server/__tests__/integration.test.js
+server/__tests__/verification.test.js
+```
+
+The GitHub Actions workflow runs:
+
 ```bash
-curl -X POST http://localhost:5003/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "firstName": "John",
-    "lastName": "Farmer",
-    "email": "john@farm.com",
-    "password": "SecurePass123",
-    "phone": "9876543210",
-    "role": "farmer",
-    "address": {
-      "street": "123 Farm Lane",
-      "city": "Punjab",
-      "state": "Punjab",
-      "zipCode": "160001",
-      "country": "India"
-    }
-  }'
+npm test -- --runInBand
 ```
 
-#### 2. User Login
-**Endpoint:** `POST /api/auth/login`
+from the `server/` directory.
+
+## Run backend tests locally
+
 ```bash
-curl -X POST http://localhost:5003/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "john@farm.com",
-    "password": "SecurePass123"
-  }'
+cd server
+npm ci
+npm test -- --runInBand
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "_id": "60d5ec49c1234a1b2c3d4e5f",
-    "firstName": "John",
-    "email": "john@farm.com",
-    "role": "farmer"
-  }
-}
+The test environment uses `NODE_ENV=test` and an in-memory MongoDB server, so it does not require a live production database.
+
+## Current backend coverage areas
+
+### Authentication
+
+Tests cover behavior such as:
+
+- user registration
+- invalid email rejection
+- duplicate email rejection
+- login success/failure
+- generic forgot-password response
+
+### Products
+
+Tests cover:
+
+- product listing and filters
+- verified farmer product creation
+- authentication requirement
+- product review creation
+- self-review rejection
+- duplicate-review rejection
+
+### Cart
+
+Tests cover:
+
+- adding items
+- fetching the authenticated user's cart
+
+### Orders
+
+Tests cover:
+
+- creating an order from a cart
+- empty-cart rejection
+- seller order status update
+- stock re-check behavior at checkout
+
+The stale-cart stock test first adds an available quantity to the cart, then changes database stock before checkout to simulate a real race. Checkout must reject the order rather than oversell.
+
+### Delivery
+
+Tests cover:
+
+- open/nearby delivery discovery
+- delivery partner acceptance
+- ownership after acceptance
+- assigned partner information
+- status/location update
+- route/status history behavior
+
+### Notifications
+
+Tests cover:
+
+- fetching the user's notifications
+- unread count
+- marking a notification as read
+
+### Users/security
+
+Tests cover:
+
+- profile endpoint authentication
+- nearby seller route ordering/search behavior
+
+### Payments
+
+When Stripe webhook configuration is intentionally absent in tests, the webhook endpoint is expected to return:
+
+```text
+503 Service Unavailable
 ```
 
----
+This matches the active backend behavior.
 
-### Product Endpoints
+## Farmer verification/security suite
 
-#### 1. Get All Products
-**Endpoint:** `GET /api/products`
+`verification.test.js` covers critical manual-verification rules including:
+
+- unverified farmer cannot create products
+- forged verification media supplied only in the final request is rejected
+- complete persisted verification evidence can be submitted
+- submission changes farmer status to pending
+- employee sees only assigned-area farmers
+- employee cannot approve outside assigned area
+- assigned employee can approve complete evidence
+- suspended account is blocked even with an unexpired JWT
+- another user cannot obtain bank/verification/private contact data
+- public product seller data does not expose private fields
+- `/api/admin` is mounted
+- admin can create an area verification employee
+
+Cloudinary is intentionally not required by these verification tests because test fixtures persist representative evidence metadata directly into the in-memory database. Signed preview generation is skipped when Cloudinary is not configured in test mode.
+
+## Frontend validation
+
+The repository does not currently contain a browser/unit test suite for React components. The automated frontend CI check is a production build.
+
+Run:
+
 ```bash
-curl http://localhost:5003/api/products
+cd client
+npm ci
+npm run build
 ```
 
-**With Filters:**
+Optional local lint check:
+
 ```bash
-curl "http://localhost:5003/api/products?category=vegetables&maxPrice=500"
+npm run lint
 ```
 
-#### 2. Create Product (Farmer)
-**Endpoint:** `POST /api/products`
-```bash
-curl -X POST http://localhost:5003/api/products \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "name": "Fresh Tomatoes",
-    "description": "Organic red tomatoes",
-    "category": "vegetables",
-    "price": 40,
-    "quantity": 100,
-    "unit": "kg",
-    "harvestDate": "2024-05-01",
-    "description": "Fresh harvest",
-    "image": "https://example.com/tomato.jpg"
-  }'
+## GitHub Actions
+
+Workflow:
+
+```text
+.github/workflows/ci-cd.yml
 ```
 
----
+Backend environment supplied by CI includes test JWT secrets and `NODE_ENV=test`.
 
-### Cart Endpoints
+Frontend build environment uses:
 
-#### 1. Get Cart
-**Endpoint:** `GET /api/cart`
-```bash
-curl http://localhost:5003/api/cart \
-  -H "Authorization: Bearer YOUR_TOKEN"
+```env
+VITE_API_URL=http://localhost:5001/api
 ```
 
-#### 2. Add to Cart
-**Endpoint:** `POST /api/cart/add`
-```bash
-curl -X POST http://localhost:5003/api/cart/add \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "productId": "60d5ec49c1234a1b2c3d4e5f",
-    "quantity": 5
-  }'
+No production secrets are required for the CI build/test jobs.
+
+## Manual smoke testing
+
+Automated tests do not prove external providers are configured. After deployment, manually verify:
+
+```text
+Backend /api/health
+Frontend deep-link refresh (/login, /farmer, /admin)
+Frontend-to-backend API URL
+CORS from the real Vercel origin
+MongoDB connection
+Cloudinary product upload
+Cloudinary farmer verification image/video upload
+Farmer manual verification submission
+Verification employee area filtering/review
+Verified farmer product creation
+Buyer/farmer cart rules
+Order creation and stock change handling
+Delivery partner claim and status updates
+Payment provider test-mode flow
+Email flow when SMTP is configured
 ```
 
-#### 3. Update Cart Item
-**Endpoint:** `PUT /api/cart/update/:itemId`
-```bash
-curl -X PUT http://localhost:5003/api/cart/update/60d5ec49c1234a1b2c3d4e5f \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "quantity": 10
-  }'
-```
+## Farmer verification manual QA scenario
 
-#### 4. Remove from Cart
-**Endpoint:** `DELETE /api/cart/remove/:itemId`
-```bash
-curl -X DELETE http://localhost:5003/api/cart/remove/60d5ec49c1234a1b2c3d4e5f \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+1. Register/login as farmer.
+2. Confirm farmer cannot publish a product before verification.
+3. Open `/verification`.
+4. Upload Aadhaar front/back, farm photo and farming video.
+5. Capture valid farm GPS and enter address/district/state.
+6. Submit verification and confirm status becomes `pending`.
+7. Login as a verification employee assigned to that farmer's area.
+8. Confirm the farmer appears in the employee queue.
+9. Approve the farmer.
+10. Login/refresh as farmer and confirm verified status.
+11. Create a produce listing with GPS.
+12. Confirm the listing is available through the marketplace APIs.
 
----
+Repeat with an employee assigned to a different area and confirm review is forbidden.
 
-### Order Endpoints
+## Security regression checklist
 
-#### 1. Create Order
-**Endpoint:** `POST /api/orders/create`
-```bash
-curl -X POST http://localhost:5003/api/orders/create \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "deliveryAddress": {
-      "fullName": "John Doe",
-      "phone": "9876543210",
-      "street": "123 Main St",
-      "city": "Bangalore",
-      "state": "Karnataka",
-      "zipCode": "560001",
-      "country": "India"
-    },
-    "paymentMethod": "upi"
-  }'
-```
+Whenever changing auth/user/product/verification routes, re-check:
 
-#### 2. Get Orders
-**Endpoint:** `GET /api/orders`
-```bash
-curl http://localhost:5003/api/orders \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+- public endpoints never expose bank details or verification evidence
+- suspended account JWTs are rejected
+- farmers cannot bypass verification by editing frontend state
+- verification employees cannot review outside assigned areas
+- arbitrary uploaded URLs cannot substitute for persisted verification evidence
+- users cannot update/delete another seller's products unless admin
+- stock cannot become negative through stale-cart checkout
+- two delivery partners cannot claim the same open job
+- production payment code cannot accept development mock confirmation
 
-#### 3. Update Order Status
-**Endpoint:** `PUT /api/orders/:id/status`
-```bash
-curl -X PUT http://localhost:5003/api/orders/60d5ec49c1234a1b2c3d4e5f/status \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "status": "confirmed",
-    "note": "Order confirmed by seller"
-  }'
-```
+## CI interpretation
 
----
-
-### Payment Endpoints
-
-#### 1. Create Payment Intent (Stripe)
-**Endpoint:** `POST /api/payments/create-intent`
-```bash
-curl -X POST http://localhost:5003/api/payments/create-intent \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "orderId": "60d5ec49c1234a1b2c3d4e5f",
-    "amount": 
-  }'
-```
-
----
-
-### Delivery Endpoints
-
-#### 1. Get Deliveries
-**Endpoint:** `GET /api/delivery`
-```bash
-curl http://localhost:5003/api/delivery \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-#### 2. Update Delivery Status
-**Endpoint:** `PUT /api/delivery/:id/status`
-```bash
-curl -X PUT http://localhost:5003/api/delivery/60d5ec49c1234a1b2c3d4e5f/status \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "status": "in_transit",
-    "location": {
-      "latitude": 28.7041,
-      "longitude": 77.1025
-    },
-    "note": "Out for delivery"
-  }'
-```
-
----
-
-## Frontend Testing
-
-### Manual Testing Checklist
-
-#### Authentication Flow
-- [ ] User can register as farmer
-- [ ] User can register as buyer
-- [ ] User can register as delivery partner
-- [ ] User can register as fertilizer seller
-- [ ] Login works with valid credentials
-- [ ] Login fails with invalid credentials
-- [ ] Token is stored in localStorage
-- [ ] User is redirected to correct dashboard
-
-#### Buyer Dashboard
-- [ ] Products load from backend
-- [ ] Search functionality works
-- [ ] Voice search works (when available)
-- [ ] Add to cart works
-- [ ] Cart count updates
-- [ ] Notifications appear
-
-#### Cart Flow
-- [ ] Cart loads items
-- [ ] Quantity can be updated
-- [ ] Items can be removed
-- [ ] Total price calculates correctly
-- [ ] Checkout button works
-- [ ] Order submission works
-
-#### Farmer Dashboard
-- [ ] Farmer can add new product
-- [ ] Product form validation works
-- [ ] Products appear after creation
-- [ ] Farmer can view orders
-- [ ] Farmer can update order status
-
-#### Delivery Partner
-- [ ] Can see available deliveries
-- [ ] Can accept delivery
-- [ ] Can update delivery status
-- [ ] Location tracking works
-
-#### Admin Panel
-- [ ] Can view all users
-- [ ] Can view orders
-- [ ] Can view statistics
-- [ ] Can manage platform
-
----
-
-## Automated Testing Scripts
-
-### Backend Tests
-Create `server/tests/api.test.js`:
-
-```javascript
-// Example test structure for Jest/Mocha
-const request = require('supertest');
-const app = require('../server');
-
-describe('Authentication API', () => {
-  test('POST /api/auth/login should return token', async () => {
-    const response = await request(app)
-      .post('/api/auth/login')
-      .send({
-        email: 'test@example.com',
-        password: 'password123'
-      });
-    
-    expect(response.status).toBe(200);
-    expect(response.body.token).toBeDefined();
-  });
-});
-```
-
----
-
-## Performance Testing
-
-### Load Testing with Apache JMeter
-1. Download JMeter
-2. Create test plan
-3. Add HTTP requests to key endpoints
-4. Configure thread groups (virtual users)
-5. Run tests and analyze results
-
-### Example Metrics to Track
-- Response time (avg, min, max)
-- Throughput (requests/second)
-- Error rate
-- CPU/Memory usage
-
----
-
-## Mobile Testing
-
-### iOS Testing
-- Use Safari DevTools or BrowserStack
-- Test on iOS 14+
-- Check voice search with Siri integration
-
-### Android Testing
-- Use Chrome DevTools
-- Test on Android 9+
-- Verify location permissions
-
----
-
-## User Acceptance Testing (UAT)
-
-### Test Scenarios
-
-1. **Farmer User Story:**
-   - Farmer registers
-   - Farmer lists products
-   - Farmer receives orders
-   - Farmer confirms orders
-   - Farmer receives payment
-
-2. **Buyer User Story:**
-   - Buyer searches products
-   - Buyer adds to cart
-   - Buyer checks out
-   - Buyer tracks delivery
-   - Buyer receives product
-
-3. **Delivery Partner User Story:**
-   - Partner sees delivery request
-   - Partner accepts delivery
-   - Partner tracks location
-   - Partner completes delivery
-   - Partner receives payment
-
----
-
-## Bug Reporting Template
-
-```markdown
-## Bug Title
-[Brief description]
-
-## Environment
-- OS: [Windows/Mac/Linux]
-- Browser: [Chrome/Firefox/Safari]
-- Device: [Desktop/Mobile/Tablet]
-
-## Steps to Reproduce
-1. ...
-2. ...
-3. ...
-
-## Expected Result
-[What should happen]
-
-## Actual Result
-[What actually happened]
-
-## Screenshots/Logs
-[Attach relevant files]
-
-## Severity
-[Critical/High/Medium/Low]
-```
-
----
-
-## Health Check
-
-### Server Health Check
-```bash
-curl http://localhost:5003/api/health
-```
-
-Expected response:
-```json
-{
-  "status": "OK",
-  "timestamp": "2024-05-05T10:30:00.000Z",
-  "uptime": 3600,
-  "mongodb": "Connected"
-}
-```
-
----
-
-## Testing Tools
-
-### Recommended Tools
-- **API Testing:** Postman, Insomnia, Thunder Client
-- **Frontend Testing:** Cypress, Playwright, Jest
-- **Load Testing:** Apache JMeter, k6
-- **Monitoring:** Sentry, New Relic, DataDog
-- **CI/CD:** GitHub Actions, Jenkins, GitLab CI
-
----
-
-## Test Results Report
-
-Date: 2024-05-05
-Status: ✅ All Core Features Tested
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Authentication | ✅ Pass | All roles working |
-| Product Management | ✅ Pass | Create, Read, Update working |
-| Cart Management | ✅ Pass | Add, update, remove functional |
-| Orders | ✅ Pass | Creation and status updates working |
-| Payments | ✅ Pass | Stripe integration operational |
-| Delivery Tracking | ✅ Pass | Real-time updates working |
-| Notifications | ✅ Pass | Socket.io notifications functional |
-| Voice Search | ✅ Pass | Web Speech API working |
-| Location Services | ✅ Pass | Geolocation functional |
+A failing test should be fixed by comparing the expectation with the current intended backend behavior. Do not weaken production validation merely to make a stale test green. If intended behavior changed, update the test so it still exercises the real business/security condition.

@@ -1,350 +1,296 @@
-# AgroConnect Capstone - Complete Fix Implementation Guide
+# AgroConnect Implementation Guide
 
-## ✅ COMPLETED FIXES
+This guide describes the implementation that exists on the current repository branch. It is not a future-feature checklist.
 
-### 1. Security Fixes
+## 1. Application layers
 
-#### JWT Secret Rotation (CRITICAL)
-- **File**: `server/.env`
-- **Fixed**: Changed JWT_SECRET from 34 characters to 64+ characters
-- **Old**: `JWT_SECRET=agroconnect_super_secret_key_12345`
-- **New**: `JWT_SECRET=agroconnect_super_secure_random_key_with_minimum_64_characters_length_xyz123`
-- **Added**: `JWT_RESET_SECRET` (separate secret for password reset tokens)
-
-#### Email Enumeration Attack Prevention
-- **File**: `server/routes/auth.js`
-- **Fixed**: Forgot-password route now returns HTTP 200 with generic message for all emails
-- **Prevents**: Attackers from enumerating valid emails in the system
-
-#### User Profile Protection
-- **File**: `server/routes/users.js`
-- **Fixed**: Added `protect` middleware to `GET /api/users/:id`
-- **Protection**: Profile data (bank account, phone, earnings, address) no longer publicly accessible
-
-#### Stripe Validation
-- **File**: `server/server.js`
-- **Added**: Startup validation for `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`
-- **Behavior**: Throws clear error if secrets missing rather than crashing silently
-- **File**: `server/routes/payments.js`
-- **Added**: Guard in webhook route to return 400 if webhook secret not configured
-
-### 2. Data Integrity Fixes
-
-#### Route Ordering (CRITICAL)
-- **File**: `server/routes/users.js`
-- **Fixed**: Moved `GET /api/users/search/nearby` BEFORE `GET /api/users/:id`
-- **Problem**: Express was treating "search" as an ID parameter, breaking the endpoint
-- **Impact**: Now `/api/users/search/nearby` works correctly
-
-#### MongoDB Transactions for Order Creation
-- **File**: `server/routes/orders.js`
-- **Added**: Full transaction support with `mongoose.startSession()`
-- **Covers**: Product quantity updates, seller earnings updates, order creation, cart clearing
-- **Atomicity**: If any step fails, entire transaction rolls back
-- **Race Condition Fix**: Uses atomic `$inc` operation with guard checks on product quantity
-
-```javascript
-// Before: Sequential unsafe updates
-product.quantity -= item.quantity;
-await product.save();
-await User.findByIdAndUpdate(...);
-
-// After: Atomic transaction
-const session = await mongoose.startSession();
-session.startTransaction();
-await Product.findByIdAndUpdate(
-  item.product,
-  { $inc: { quantity: -item.quantity } },
-  { session }
-);
-// All updates within transaction...
-await session.commitTransaction();
+```text
+client/  -> React 19 + Vite 8 SPA
+server/  -> Express 4 REST API + Socket.IO
+MongoDB  -> application data
+Cloudinary -> product media + private farmer verification evidence
 ```
 
-#### Payment Enum Consistency
-- **Status**: Verified in `server/models/Order.js`
-- **Enum**: `['pending', 'completed', 'failed', 'refunded']`
-- **Action**: Can set to `null` on creation and populate after Stripe confirmation
+Node version used by the repository and CI:
 
-### 3. Authentication & Authorization Fixes
-
-#### Protect Middleware Enhancement
-- **Status**: ✅ Already properly implemented
-- **Location**: `server/middleware/auth.js`
-- **Applied to**: User profile endpoint and all sensitive routes
-
-#### Review System Improvements
-- **File**: `server/routes/products.js`
-- **Added**: Prevent users from reviewing their own products
-- **Added**: Prevent duplicate reviews from same user
-- **User Review Route**: Already had duplicate check - now product route matches
-
-### 4. API Improvements
-
-#### Pagination Implementation
-- **File**: `server/routes/products.js`
-- **Added**: Cursor-based pagination to `GET /api/products`
-- **Defaults**: page=1, limit=20
-- **Maximum**: 100 items per page
-- **Returns**: total, pages, current page, count
-
-```javascript
-GET /api/products?page=1&limit=20&category=produce&minPrice=20&maxPrice=100
+```text
+20.19.0
 ```
 
-#### Body Parser Limits
-- **File**: `server/server.js`
-- **Standard Routes**: Limited to 1MB
-- **File Uploads**: Can accept up to 50MB
-- **Security**: Prevents large payload DoS attacks
+## 2. Authentication
 
-### 5. Notification System Implementation
+Backend files:
 
-#### Notification Model
-- **File**: `server/models/Notification.js` (NEW)
-- **Fields**:
-  - `user`: Reference to User (indexed)
-  - `title`: Notification title
-  - `message`: Notification body
-  - `type`: enum of ['order', 'delivery', 'payment', 'review', 'system', 'message']
-  - `read`: Boolean (indexed for queries)
-  - `readAt`: DateTime when marked as read
-  - `relatedId`: Optional reference to related document
-  - `actionUrl`: Optional link to related action
-  - `createdAt`: Timestamp (indexed)
-
-#### Notification Routes
-- **File**: `server/routes/notifications.js` (ENHANCED)
-- **GET /api/notifications**: Fetch user notifications with pagination
-- **GET /api/notifications/:id**: Get single notification
-- **PUT /api/notifications/:id/read**: Mark as read
-- **PUT /api/notifications/mark-all/read**: Mark all as read
-- **DELETE /api/notifications/:id**: Delete notification
-
-#### Wire-up to Orders
-- **File**: `server/routes/orders.js`
-- **Implementation**: When order is created/confirmed, notifications are:
-  - Saved to database
-  - Emitted via Socket.IO in real-time
-  - Sellers get "New Order Received" notification
-  - Buyers get "Order Placed Successfully" notification
-
-### 6. Frontend - Fully Functional Dashboards
-
-#### Farmer Dashboard
-- **File**: `client/src/pages/farmer/FarmerDashboard.jsx`
-- **Status**: ✅ FULLY FUNCTIONAL
-- **Features**:
-  - Real products from `GET /api/products/seller/:sellerId`
-  - Real earnings from user database
-  - Real orders from `GET /api/orders`
-  - Confirm/reject incoming orders via `PUT /api/orders/:id/status`
-  - Add/Edit/Delete products
-  - AI price suggestions via `POST /api/pricing/suggest`
-  - Loading states and error handling
-  - Real-time stats
-
-## 🔄 PARTIALLY COMPLETED
-
-### Buyer Dashboard
-- **Status**: Needs enhancement
-- **Current**: Has basic product listing and cart integration
-- **TODO**:
-  - Implement working category filters
-  - Implement working price range filters
-  - Implement working search
-  - Replace localStorage cart with API-driven cart
-  - Implement full checkout flow
-  - Connect to real payment system
-
-### AddProduct Component
-- **Status**: Needs to be connected to API
-- **TODO**: 
-  - Implement POST /api/products
-  - Handle image uploads
-  - Show success/error messages
-  - Auto-refresh farmer dashboard after creation
-
-## ⚠️ REMAINING TASKS
-
-### Backend
-
-#### 1. Replace Math.random() AI Pricing
-- **File**: `server/routes/aiPricing.js`
-- **Current**: Uses Math.random() for fake estimates
-- **Required**: Either:
-  - Integrate real market price API (e.g., OpenWeatherMap, commodity price APIs)
-  - OR calculate from actual transaction history in orders collection
-- **Response**: Must label as 'Simulated estimate' if using fake data
-
-#### 2. Auto-create Delivery on Order Confirmation
-- **File**: `server/routes/orders.js`
-- **When**: Order status updated to 'confirmed'
-- **Action**: Create Delivery document linked to order
-- **Alternative**: Create system-level function that admins/system calls
-
-#### 3. Email Notifications
-- **File**: `server/routes/auth.js`
-- **Setup nodemailer** in server.js with SMTP configuration from .env
-- **Implement**: Send password reset email with link
-- **Email Template**: Should include reset link and expiry info
-
-### Frontend
-
-#### 1. Cart API Integration
-- **File**: `client/src/context/AppContext.jsx`
-- **Remove**: localStorage-based cart
-- **Replace with**:
-  - GET /api/cart on load
-  - POST /api/cart/add for adding items
-  - PUT /api/cart/update/:itemId for quantity changes
-  - DELETE /api/cart/remove/:itemId for removing items
-  - Cart badge in header reflects `totalQuantity` from backend
-
-#### 2. Complete Buyer Dashboard
-- [ ] Category filter buttons
-- [ ] Price range filter
-- [ ] Search input with debouncing
-- [ ] Sort options (price_low, price_high, rating, newest)
-- [ ] Add to cart button on each product
-- [ ] Cart badge update in header
-- [ ] Cart page with:
-  - Load items from GET /api/cart
-  - Quantity update functionality
-  - Remove item functionality
-  - Checkout button that creates order
-- [ ] Payment page:
-  - Create Stripe intent
-  - Render Stripe Elements UI
-  - Handle payment confirmation
-
-#### 3. Delivery Partner Dashboard
-- **File**: `client/src/pages/delivery/DeliveryDashboard.jsx`
-- **Requirements**:
-  - GET /api/delivery to load assigned deliveries
-  - Display pickup and dropoff addresses
-  - Show current status
-  - Map or coordinates display
-  - Update status via PUT /api/delivery/:id/status
-  - Submit GPS coordinates with status updates
-  - Show real earnings and completed delivery count
-  - GET /api/delivery/nearby for available pickups
-
-#### 4. Admin Dashboard
-- **File**: `client/src/pages/admin/AdminDashboard.jsx`
-- **Requirements**:
-  - Load real platform stats:
-    - Total users by role (GET /api/users/role/:role for each)
-    - Total products
-    - Total orders
-    - Total revenue
-  - User management table with deactivate/delete
-  - Product management with verify/remove
-  - Order management with status updates
-  - Delivery assignment via PUT /api/delivery/:id/assign
-  - All tables paginated and searchable
-
-### Testing
-
-#### Integration Tests
-- **File**: `server/__tests__/integration.test.js` (CREATED)
-- **Status**: Basic test structure created
-- **Setup**: Uses mongodb-memory-server
-- **Coverage**:
-  - ✅ Auth routes (register, login, forgot-password, reset-password)
-  - ✅ Product routes (GET, POST, DELETE, reviews)
-  - ✅ Order routes (create with transactions, status updates)
-  - ✅ Cart routes
-  - ✅ Notification routes
-  - ✅ User routes (protected access)
-  - ✅ Payment webhook validation
-  - ✅ Atomic transaction tests
-
-### Configuration
-
-#### .env.example Update
-- **Add**: All new environment variables with explanations
-- **Variables to add**:
-  ```env
-  JWT_SECRET=your_64_char_secret_here
-  JWT_RESET_SECRET=your_64_char_secret_here
-  STRIPE_SECRET_KEY=sk_test_...
-  STRIPE_WEBHOOK_SECRET=whsec_...
-  SMTP_HOST=smtp.gmail.com
-  SMTP_PORT=587
-  SMTP_USER=your_email@gmail.com
-  SMTP_PASS=your_app_password
-  CLOUDINARY_NAME=your_name
-  CLOUDINARY_API_KEY=your_key
-  CLOUDINARY_API_SECRET=your_secret
-  ```
-
-#### .gitignore
-- **Status**: ✅ Already excludes .env
-- **Verify**: `node_modules/`, `.env`, `.env.local`, `build/` are all listed
-
-## 🧪 How to Run Tests
-
-```bash
-# Install dependencies
-npm install --save-dev jest supertest mongodb-memory-server
-
-# Create jest.config.js
-npm test
-
-# Run specific test file
-npm test __tests__/integration.test.js
-
-# Run with coverage
-npm test -- --coverage
+```text
+server/routes/auth.js
+server/middleware/auth.js
+server/models/User.js
 ```
 
-## 🚀 Deployment Checklist
+Implemented behavior:
 
-- [ ] Update .env with real Stripe keys
-- [ ] Update .env with real SMTP credentials
-- [ ] Generate new JWT_SECRET and JWT_RESET_SECRET (use node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-- [ ] Test password reset email flow
-- [ ] Test Stripe webhook locally with ngrok
-- [ ] Create Delivery model if not exists
-- [ ] Run all integration tests
-- [ ] Test all dashboards in production environment
+- public registration for buyer, farmer, fertilizer seller and delivery partner
+- JWT login
+- `/api/auth/me`
+- password reset token flow
+- welcome/reset email service integration
+- bcrypt password hashing in the User model
+- current-user lookup for every protected request
+- inactive/suspended account rejection
+- role authorization middleware
 
-## 📊 Database Schema Updates
+`verification_employee` and `admin` cannot be selected through public registration.
 
-### Create Indexes
-```javascript
-// In mongodb shell or migration script
-db.notifications.createIndex({ user: 1, createdAt: -1 })
-db.notifications.createIndex({ user: 1, read: 1, createdAt: -1 })
-db.products.createIndex({ location: "2dsphere" })
-db.products.createIndex({ name: "text", description: "text" })
-db.users.createIndex({ location: "2dsphere" })
+## 3. Farmer verification
+
+Frontend:
+
+```text
+client/src/pages/Verification.jsx
+client/src/pages/verification/VerificationEmployeeDashboard.jsx
+client/src/pages/admin/VerificationEmployees.jsx
 ```
 
-## 🔍 Code Quality Notes
+Backend:
 
-1. **Error Handling**: All API endpoints should try-catch with proper status codes
-2. **Validation**: Use express-validator for input validation
-3. **Authorization**: Check user role and ownership for all mutations
-4. **Logging**: Add console.error for debugging
-5. **Security**: Always sanitize user input, use HTTPS in production
+```text
+server/routes/users.js
+server/routes/upload.js
+server/routes/admin.js
+server/models/User.js
+```
 
-## 📝 Summary of Architecture Changes
+Required manual evidence:
 
-### Before
-- Placeholder dashboards with hardcoded data
-- Unsafe sequential updates in order creation
-- No transaction support
-- Email enumeration vulnerability
-- Route ordering issues
-- In-memory notifications only
+- Aadhaar front image
+- Aadhaar back image
+- farm photo
+- farming video
+- GPS coordinates
+- farm address
+- district
+- state
 
-### After
-- Fully functional API-driven dashboards
-- Atomic MongoDB transactions for order creation
-- Real-time notifications saved to database
-- Protected user endpoints
-- Correct Express route ordering
-- Comprehensive error handling
-- Full integration test coverage
+Flow:
+
+```text
+Farmer uploads evidence
+        -> evidence persisted by protected upload routes
+        -> farmer submits verification
+        -> pending
+        -> assigned-area employee/admin reviews
+        -> verified / rejected / more_information_required
+```
+
+Verification employees are assigned by state and optional districts. The backend checks that assignment before allowing review.
+
+A verified farmer is required before a produce listing can be published.
+
+## 4. Marketplace products
+
+Frontend product pages include farmer and fertilizer-seller add/edit flows plus buyer/fertilizer-store browsing.
+
+Backend:
+
+```text
+server/routes/products.js
+server/models/Product.js
+```
+
+Implemented rules:
+
+- farmers create produce only
+- fertilizer sellers create fertilizer only
+- unverified farmers cannot create listings
+- valid GPS is required to publish an active listing
+- search/category/price filters
+- pagination
+- price/rating sorting
+- optional location-distance query
+- seller product list
+- product reviews with self-review and duplicate-review prevention
+- public seller data uses a safe field list
+
+## 5. Cart
+
+Frontend state is API-backed through the application context/API service.
+
+Backend:
+
+```text
+server/routes/cart.js
+server/models/Cart.js
+```
+
+Endpoints support load, add, update, remove and clear.
+
+Farmers may shop for fertilizer products; produce purchase as a farmer shopping account is rejected by the backend.
+
+## 6. Orders
+
+Backend:
+
+```text
+server/routes/orders.js
+server/models/Order.js
+```
+
+Implemented behavior:
+
+- create order from authenticated cart
+- validate delivery details
+- default trusted contact details from authenticated account when older clients omit them
+- re-check stock at checkout
+- reserve stock with guarded database updates
+- restore already-reserved stock when a later reservation fails
+- clear cart after successful creation
+- buyer/seller notifications
+- role-scoped order retrieval
+- controlled order status transitions
+- buyer cancellation where allowed
+- inventory restoration after cancellation
+
+## 7. Payments
+
+Backend:
+
+```text
+server/routes/payments.js
+server/models/Order.js  # Payment model is exported here
+```
+
+Current implementation contains:
+
+- Razorpay payment-order creation
+- stored Payment document
+- Razorpay HMAC signature verification
+- order/payment ownership validation
+- protection against confirming cancelled orders
+- development-only mock fallback, disabled in production
+- Stripe webhook handling when Stripe secrets are configured
+- seller-specific delivery creation after successful payment
+- duplicate delivery prevention on retried confirmation
+
+## 8. Delivery
+
+Frontend:
+
+```text
+client/src/pages/delivery/DeliveryDashboard.jsx
+client/src/pages/delivery/DeliveryDetail.jsx
+```
+
+Backend:
+
+```text
+server/routes/delivery.js
+server/models/Delivery.js
+```
+
+Implemented behavior:
+
+- role-scoped delivery visibility
+- nearby/unclaimed delivery search
+- atomic delivery claim by a delivery partner
+- admin assignment
+- controlled delivery status transitions
+- partner location updates and route history
+- delivery update email hook
+
+## 9. Notifications
+
+Backend:
+
+```text
+server/routes/notifications.js
+server/models/Notification.js
+```
+
+Frontend notification state/components are in `client/src/context` and `client/src/components`.
+
+Implemented endpoints:
+
+- create/send notification
+- retrieve current user's notifications
+- mark notification as read
+
+Socket.IO is also used for realtime notification/order/delivery events.
+
+## 10. Pricing suggestions
+
+Backend:
+
+```text
+server/routes/aiPricing.js
+```
+
+`POST /api/pricing/suggest` first attempts to derive pricing from matching recent order history. When usable history is unavailable, it returns a simulated fallback and explicitly sets:
+
+```json
+{
+  "isSimulated": true
+}
+```
+
+The trend and overall market-analysis endpoints currently use predefined data.
+
+## 11. Admin
+
+Admin APIs are mounted at:
+
+```text
+/api/admin
+```
+
+Current admin capabilities include:
+
+- stats
+- users
+- orders
+- products
+- deliveries
+- farmer verification
+- user activation/deactivation
+- verification employee creation/assignment
+- order status updates
+- product deletion
+- bulk notification creation
+
+## 12. Security/data privacy
+
+Implemented controls include:
+
+- Helmet
+- CORS allowlist
+- auth rate limiting
+- JWT verification
+- DB recheck of account active state
+- role checks
+- safe public user profiles
+- private/authenticated verification media
+- backend verification-area enforcement
+- backend farmer selling gate
+- guarded inventory and delivery-claim updates
+
+## 13. Deployment configuration
+
+Frontend deployment uses `client/vercel.json` for SPA rewrites.
+
+Backend health endpoint:
+
+```text
+GET /api/health
+```
+
+Production backend startup validates MongoDB, JWT, reset-secret, frontend CORS origin and Cloudinary configuration.
+
+See `SETUP_AND_DEPLOYMENT.md` and `ENVIRONMENT_VARIABLES.md` for exact setup values.
+
+## 14. Known technical debt
+
+These items exist in the current repository and should be considered during future cleanup:
+
+- `server/routes/apiRoutes.js` contains older notification/pricing route code but is not mounted by `server.js`.
+- A Cart schema/model is also exported from `server/models/Order.js` while the active cart routes use `server/models/Cart.js`; both guard against duplicate Mongoose model registration.
+- Pricing trend/market-analysis endpoints contain predefined data; only the suggestion endpoint attempts recent transaction-history pricing first.
+- Production success still depends on external services being configured correctly (MongoDB, Cloudinary, payment provider, SMTP and deployment platforms).

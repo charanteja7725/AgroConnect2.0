@@ -44,19 +44,36 @@ const ensureCloudinaryConfigured = () => {
   }
 };
 
-const uploadBuffer = async (
+// Stream upload buffers to Cloudinary instead of converting them to base64.
+// Base64 increases payload size substantially and made larger farming videos
+// much more likely to hit Cloudinary/hosting request timeouts.
+const uploadBuffer = (
   file,
   folder,
   resourceType = "image",
   deliveryType = "upload"
 ) => {
   ensureCloudinaryConfigured();
-  const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
-  return cloudinary.uploader.upload(dataUri, {
-    folder,
-    resource_type: resourceType,
-    type: deliveryType,
+  const timeout = resourceType === "video" ? 300000 : 120000;
+
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: resourceType,
+        type: deliveryType,
+        timeout,
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        if (!result) return reject(new Error("Cloudinary returned no upload result"));
+        return resolve(result);
+      }
+    );
+
+    uploadStream.on("error", reject);
+    uploadStream.end(file.buffer);
   });
 };
 
@@ -78,9 +95,6 @@ const persistVerificationMedia = async (userId, field, uploadResult, resourceTyp
     throw new Error("Suspended farmer accounts cannot upload verification evidence");
   }
 
-  // Atomic path update is important because the frontend uploads the four
-  // evidence files in parallel. A full-document save here could overwrite a
-  // different evidence field written by another concurrent upload request.
   await User.findByIdAndUpdate(userId, {
     $set: { [`verificationDocuments.${field}`]: media },
   });
@@ -113,7 +127,12 @@ router.post(
       });
     } catch (err) {
       console.error("Cloudinary upload error:", err);
-      return res.status(500).json({ error: err.message || "Error uploading image" });
+      const timedOut = err?.http_code === 499 || /timeout/i.test(err?.message || "");
+      return res.status(timedOut ? 504 : 500).json({
+        error: timedOut
+          ? "Media upload timed out. Please retry with a shorter or smaller file."
+          : err.message || "Error uploading image",
+      });
     }
   }
 );
@@ -147,7 +166,12 @@ const createVerificationUploadRoute = ({ path, field, label, resourceType, middl
         return res.json({ success: true, ...media });
       } catch (err) {
         console.error(`${label} upload error:`, err);
-        return res.status(500).json({ error: err.message || `Error uploading ${label}` });
+        const timedOut = err?.http_code === 499 || /timeout/i.test(err?.message || "");
+        return res.status(timedOut ? 504 : 500).json({
+          error: timedOut
+            ? `${label} upload timed out. Please retry with a shorter or smaller file.`
+            : err.message || `Error uploading ${label}`,
+        });
       }
     }
   );
